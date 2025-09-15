@@ -1,0 +1,23 @@
+{
+    "version": 4,
+    "configurations": [
+        {
+            "name": "ROS2",
+            "includePath": [
+                "${workspaceFolder}/include/**",
+                "${workspaceFolder}/include/roboclaw_driver/**",
+                "${workspaceFolder}/src/**",
+                "/opt/ros/jazzy/include/**",
+                "/home/ros/a_ws/install/roboclaw_driver/include/**",
+                "/usr/include/**"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-arm64",
+            "compileCommands": "/home/ros/a_ws/build/roboclaw_driver/compile_commands.json",
+            "configurationProvider": "ms-vscode.cmake-tools"
+        }
+    ]
+}

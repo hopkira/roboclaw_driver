@@ -1,0 +1,57 @@
+roboclaw_driver:
+  ros__parameters:
+    # Device communication settings
+    device_name: "/dev/ttyAMA0"           # Serial device path for RoboClaw
+    baud_rate: 230400                      # Serial communication baud rate
+    device_timeout: 100                    # Command timeout in milliseconds
+    max_retries: 3                         # Maximum retry attempts for failed commands
+
+    # Publishing rates (Hz) - Controls how often data is published
+    odometry_rate: 67.0                    # Rate for publishing odometry data
+    joint_states_rate: 30.0                # Rate for publishing wheel joint states
+    status_rate: 10.0                      # Rate for reading and publishing status information
+
+    # Robot physical parameters - Must match your actual robot dimensions
+    wheel_radius: 0.051112072              # Wheel radius in meters
+    wheel_separation: 0.3906               # Distance between wheel centers in meters
+    encoder_counts_per_revolution: 1000    # Total encoder counts per wheel revolution
+
+    # ROS frame names
+    base_frame: "base_link"                # Robot base frame for TF
+    odom_frame: "odom"                     # Odometry frame for TF
+
+    # Rate limiting commands. The driver will clip any value
+    # exceeding these limits.
+    max_angular_velocity: 0.07
+    max_linear_velocity: 0.3
+
+    max_seconds_uncommanded_travel: 0.2 # Maximum time to allow robot to travel without receiving new commands
+
+
+    # The P, I, D and maximum quadrature pulses per second for both motors.
+    # These values are for my robot. Replace them with your own values.
+    # Use can use Basic Micro's Motion Studio to determine the values.
+    m1_p: 7.26239
+    m1_i: 2.43
+    m1_d: 0.0
+    m1_qpps: 2437
+    m2_p: 7.26239
+    m2_i: 2.43
+    m2_d: 0.0
+    m2_qpps: 2437
+
+
+    # Motor acceleration settings
+    accel: 3000                           # Motor acceleration in encoder counts per second squared
+
+    # Safety settings
+    cmd_vel_timeout: 1.0                  # Stop motors if no cmd_vel received for this many seconds
+
+    # Publishing control - Enable/disable specific data publishing
+    publish_odom: false                    # Publish odometry messages
+    publish_tf: false                      # Publish TF transforms (requires publish_odom: true)
+    publish_joint_states: false            # Publish wheel joint states
+
+    # Debugging control.
+    do_debug: true # True => Log RoboClaw commands and responses.
+    do_low_level_debug: false # True => Log low-level serial and RoboClaw data.

@@ -1,0 +1,1526 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2024 Wimblerobotics
+// https://github.com/wimblerobotics/Sigyn
+
+#include "roboclaw_driver/RoboClaw.h"
+
+#include <fcntl.h>
+#include <math.h>
+#include <poll.h>
+#include <rcutils/logging_macros.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <termios.h>
+#include <unistd.h>
+
+#include <boost/assign.hpp>
+#include <cstdint>
+#include <iostream>
+#include <rclcpp/rclcpp.hpp>
+#include <sstream>
+
+#include "roboclaw_driver/roboclaw_cmd_do_buffered_m1m2_drive_speed_accel_distance.h"
+#include "roboclaw_driver/roboclaw_cmd_read_encoder.h"
+#include "roboclaw_driver/roboclaw_cmd_read_encoder_speed.h"
+#include "roboclaw_driver/roboclaw_cmd_read_firmware_version.h"
+#include "roboclaw_driver/roboclaw_cmd_read_logic_battery_voltage.h"
+#include "roboclaw_driver/roboclaw_cmd_read_main_battery_voltage.h"
+#include "roboclaw_driver/roboclaw_cmd_read_motor_currents.h"
+#include "roboclaw_driver/roboclaw_cmd_read_motor_velocity_pidq.h"
+#include "roboclaw_driver/roboclaw_cmd_read_status.h"
+#include "roboclaw_driver/roboclaw_cmd_read_temperature.h"
+#include "roboclaw_driver/roboclaw_cmd_set_encoder_value.h"
+#include "roboclaw_driver/roboclaw_cmd_set_pid.h"
+#include "roboclaw_driver/roboclaw_cmd_set_serial_timeout.h"
+
+const char *RoboClaw::motorNames_[] = {"M1", "M2", "NONE"};
+
+RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
+                   float m2MaxCurrent, std::string device_name,
+                   uint8_t device_port, uint32_t baud_rate, bool(do_debug),
+                   bool do_low_level_debug)
+    : baud_rate_(baud_rate),
+      device_name_(device_name),
+      device_port_(device_port),
+      do_debug_(do_debug),
+      do_low_level_debug_(do_low_level_debug),
+      maxCommandRetries_(3),
+      maxM1Current_(m1MaxCurrent),
+      maxM2Current_(m2MaxCurrent),
+      portAddress_(128),
+      debug_log_(this) {
+  openPort();
+  CmdSetPid command_m1_pid(*this, kM1, m1Pid.p, m1Pid.i, m1Pid.d, m1Pid.qpps);
+  command_m1_pid.execute();
+  CmdSetPid command_m2_pid(*this, kM2, m2Pid.p, m2Pid.i, m2Pid.d, m2Pid.qpps);
+  command_m2_pid.execute();
+
+  CmdSetEncoderValue m1(*this, kM1, 0);
+  m1.execute();
+  CmdSetEncoderValue m2(*this, kM2, 0);
+  m2.execute();
+
+  // Set a serial timeout of 1 second (10 deciseconds)
+  // CmdSetSerialTimeout timeout_cmd(*this, 100);
+  // timeout_cmd.execute();
+  // writeN2(3, portAddress_, SETSERIALTIMEOUT, 100);
+
+  // ros2_roboclaw_driver::srv::ResetEncoders::Request resetRequest;
+  // resetRequest.left = 0;
+  // resetRequest.right = 0;
+  // ros2_roboclaw_driver::srv::ResetEncoders::Response response;
+  // resetEncoders(resetRequest, response);
+}
+
+//
+// Destructor
+//
+RoboClaw::~RoboClaw() {
+  if (device_port_ >= 0) {
+    close(device_port_);
+  }
+}
+
+void RoboClaw::openPort() {
+  RCUTILS_LOG_INFO("[RoboClaw::openPort] about to open port: %s",
+                   device_name_.c_str());
+  device_port_ = open(device_name_.c_str(), O_RDWR | O_NOCTTY);
+  if (device_port_ < 0) {
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::openPort] Unable to open USB port: %s, errno: (%d) "
+        "%s",
+        device_name_.c_str(), errno, strerror(errno));
+    throw new TRoboClawException(
+        "[RoboClaw::openPort] Unable to open USB port");
+  }
+
+  // Fetch the current port settings.
+  struct termios portOptions;
+  int ret = 0;
+
+  ret = tcgetattr(device_port_, &portOptions);
+  if (ret < 0) {
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::openPort] Unable to get terminal options "
+        "(tcgetattr), error: %d: %s",
+        errno, strerror(errno));
+    throw new TRoboClawException(
+        "[RoboClaw::openPort] Unable to get terminal options (tcgetattr)");
+  }
+
+  speed_t baud;
+  switch (baud_rate_) {
+    case 9600:
+      baud = B9600;
+      break;
+    case 19200:
+      baud = B19200;
+      break;
+    case 38400:
+      baud = B38400;
+      break;
+    case 57600:
+      baud = B57600;
+      break;
+    case 115200:
+      baud = B115200;
+      break;
+    case 230'400:
+      baud = B230400;
+      break;
+    default:
+      RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unsupported baud rate: %u",
+                        baud_rate_);
+      throw new TRoboClawException(
+          "[RoboClaw::openPort] Unsupported baud rate");
+  }
+
+  if (cfsetispeed(&portOptions, baud) < 0) {
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::openPort] Unable to set terminal input speed "
+        "(cfsetispeed)");
+    throw new TRoboClawException(
+        "[RoboClaw::openPort] Unable to set terminal input speed "
+        "(cfsetispeed)");
+  }
+  if (cfsetospeed(&portOptions, baud) < 0) {
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::openPort] Unable to set terminal output speed "
+        "(cfsetospeed)");
+    throw new TRoboClawException(
+        "[RoboClaw::openPort] Unable to set terminal output speed "
+        "(cfsetospeed)");
+  }
+
+  // Configure other settings
+  portOptions.c_cflag &= ~PARENB;   // Disable parity.
+  portOptions.c_cflag &= ~CSTOPB;   // 1 stop bit
+  portOptions.c_cflag &= ~CSIZE;    // Clear data size bits
+  portOptions.c_cflag |= CS8;       // 8 data bits
+  portOptions.c_cflag &= ~CRTSCTS;  // Disable hardware flow control
+  portOptions.c_cflag |=
+      CREAD | CLOCAL;  // Enable read and ignore control lines
+
+  portOptions.c_lflag &= ~ICANON;  // Disable canonical mode
+  portOptions.c_lflag &= ~ECHO;    // Disable echo
+  portOptions.c_lflag &= ~ECHOE;   // Disable erasure
+  portOptions.c_lflag &= ~ECHONL;  // Disable new-line echo
+  portOptions.c_lflag &=
+      ~ISIG;  // Disable interpretation of INTR, QUIT and SUSP
+
+  portOptions.c_iflag &=
+      ~(IXON | IXOFF | IXANY);  // Disable software flow control
+  portOptions.c_iflag &=
+      ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR |
+        ICRNL);  // Disable special handling of received bytes
+
+  portOptions.c_oflag &= ~OPOST;  // Disable output processing
+
+  portOptions.c_cc[VMIN] = 1;    // Wait for at least 1 byte
+  portOptions.c_cc[VTIME] = 10;  // Timeout in deciseconds (1 second)
+
+  if (tcsetattr(device_port_, TCSANOW, &portOptions) != 0) {
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::openPort] Unable to set terminal options "
+        "(tcsetattr)");
+    throw new TRoboClawException(
+        "[RoboClaw::openPort] Unable to set terminal options "
+        "(tcsetattr)");
+  }
+
+  // Flush any existing data in input and output buffers
+  tcflush(device_port_, TCIOFLUSH);
+}
+
+uint16_t RoboClaw::get2ByteCommandResult2(uint8_t command) {
+  uint16_t crc = 0;
+  updateCrc(crc, portAddress_);
+  updateCrc(crc, command);
+  writeByte2(portAddress_);
+  writeByte2(command);
+  unsigned short result = 0;
+  uint8_t datum = readByteWithTimeout2();
+  result |= datum << 8;
+  updateCrc(crc, datum);
+
+  datum = readByteWithTimeout2();
+  result |= datum;
+  updateCrc(crc, datum);
+
+  uint16_t responseCrc = 0;
+  datum = readByteWithTimeout2();
+  responseCrc = datum << 8;
+  datum = readByteWithTimeout2();
+  responseCrc |= datum;
+  if (responseCrc == crc) {
+    return result;
+  } else {
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::get2ByteCommandResult2] invalid CRC expected: "
+        "0x%02X, got: 0x%02X",
+        crc, responseCrc);
+    throw new TRoboClawException(
+        "[RoboClaw::get2ByteCommandResult2 INVALID CRC");
+    return 0;
+  }
+}
+
+uint32_t RoboClaw::getUlongCommandResult2(uint8_t command) {
+  uint16_t crc = 0;
+  updateCrc(crc, portAddress_);
+  updateCrc(crc, command);
+  writeByte2(portAddress_);
+  writeByte2(command);
+  unsigned long result = 0;
+  uint8_t datum = readByteWithTimeout2();
+  result |= datum << 24;
+  updateCrc(crc, datum);
+  datum = readByteWithTimeout2();
+  result |= datum << 16;
+  updateCrc(crc, datum);
+  datum = readByteWithTimeout2();
+  result |= datum << 8;
+  updateCrc(crc, datum);
+  datum = readByteWithTimeout2();
+  result |= datum;
+  updateCrc(crc, datum);
+
+  uint16_t responseCrc = 0;
+  datum = readByteWithTimeout2();
+  responseCrc = datum << 8;
+  datum = readByteWithTimeout2();
+  responseCrc |= datum;
+  if (responseCrc == crc) {
+    return result;
+  }
+
+  RCUTILS_LOG_ERROR(
+      "[RoboClaw::getUlongCommandResult2] Expected CRC of: 0x%02X, but "
+      "got: 0x%02X",
+      int(crc), int(responseCrc));
+  throw new TRoboClawException(
+      "[RoboClaw::getUlongCommandResult2] INVALID CRC");
+  return 0;
+}
+
+uint32_t RoboClaw::getULongCont2(uint16_t &crc) {
+  uint32_t result = 0;
+  uint8_t datum = readByteWithTimeout2();
+  result |= datum << 24;
+  updateCrc(crc, datum);
+  datum = readByteWithTimeout2();
+  result |= datum << 16;
+  updateCrc(crc, datum);
+  datum = readByteWithTimeout2();
+  result |= datum << 8;
+  updateCrc(crc, datum);
+  datum = readByteWithTimeout2();
+  result |= datum;
+  updateCrc(crc, datum);
+  return result;
+}
+
+uint8_t RoboClaw::readByteWithTimeout2() {
+  struct pollfd ufd[1];
+  ufd[0].fd = device_port_;
+  ufd[0].events = POLLIN;
+
+  int retval = poll(ufd, 1, 11);
+  if (retval < 0) {
+    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Poll failed (%d) %s",
+                      errno, strerror(errno));
+    throw new TRoboClawException("[RoboClaw::readByteWithTimeout2 Read error");
+  } else if (retval == 0) {
+    std::stringstream ev;
+    ev << "[RoboClaw::readByteWithTimeout2 TIMEOUT revents: " << std::hex
+       << ufd[0].revents;
+    RCUTILS_LOG_ERROR(ev.str().c_str());
+    throw new TRoboClawException("[RoboClaw::readByteWithTimeout2 TIMEOUT");
+  } else if (ufd[0].revents & POLLERR) {
+    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Error on socket");
+    restartPort();
+    throw new TRoboClawException(
+        "[RoboClaw::readByteWithTimeout2 Error on socket");
+  } else if (ufd[0].revents & POLLIN) {
+    unsigned char buffer[1];
+    ssize_t bytesRead = ::read(device_port_, buffer, sizeof(buffer));
+    if (bytesRead != 1) {
+      RCUTILS_LOG_ERROR(
+          "[RoboClaw::readByteWithTimeout2 Failed to read 1 byte, read: "
+          "%d",
+          (int)bytesRead);
+      throw TRoboClawException(
+          "[RoboClaw::readByteWithTimeout2 Failed to read 1 byte");
+    }
+
+    if (do_debug_ || do_low_level_debug_) {
+      appendToReadLog("%02X ", buffer[0]);
+      if (do_low_level_debug_) {
+        RCUTILS_LOG_INFO("Read: %02X", buffer[0]);
+      }
+    }
+
+    return buffer[0];
+  } else {
+    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Unhandled case");
+    throw new TRoboClawException(
+        "[RoboClaw::readByteWithTimeout2 Unhandled case");
+  }
+
+  return 0;
+}
+
+void RoboClaw::restartPort() {
+  close(device_port_);
+  usleep(200000);
+  openPort();
+}
+
+void RoboClaw::stop() {
+  CmdDoBufferedM1M2DriveSpeedAccelDistance stopCommand(*this, 3000, 0, 0, 0, 0);
+  stopCommand.execute();
+}
+
+void RoboClaw::updateCrc(uint16_t &crc, uint8_t data) {
+  crc = crc ^ ((uint16_t)data << 8);
+  for (int i = 0; i < 8; i++) {
+    if (crc & 0x8000)
+      crc = (crc << 1) ^ 0x1021;
+    else
+      crc <<= 1;
+  }
+}
+
+void RoboClaw::writeByte2(uint8_t byte) {
+  ssize_t result = ::write(device_port_, &byte, 1);
+
+  if (do_debug_ || do_low_level_debug_) {
+    if (result == 1) {
+      appendToWriteLog("%02X ", byte);
+      if (do_low_level_debug_) {
+        RCUTILS_LOG_INFO("Write: %02X", byte);
+      }
+    } else {
+      appendToWriteLog("~%02X ", byte);
+      if (do_low_level_debug_) {
+        RCUTILS_LOG_ERROR("Write fail: %02X", byte);
+      }
+    }
+  }
+
+  if (result != 1) {
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::writeByte2] Unable to write one byte, result: %d, "
+        "errno: %d (%s)",
+        (int)result, errno, strerror(errno));
+    restartPort();
+    throw new TRoboClawException(
+        "[RoboClaw::writeByte2] Unable to write one byte");
+  }
+}
+
+void RoboClaw::writeN2(uint8_t cnt, ...) {
+  uint16_t crc = 0;
+  va_list marker;
+  va_start(marker, cnt); /* Initialize variable arguments. */
+  for (uint8_t index = 0; index < cnt; index++) {
+    uint8_t data = va_arg(marker, int);
+    updateCrc(crc, data);
+    writeByte2(data);
+  }
+  va_end(marker); /* Reset variable arguments.      */
+  writeByte2(crc >> 8);
+  writeByte2(crc);
+
+  uint8_t response = readByteWithTimeout2();
+  if (response == 0xFF)
+    return;
+  else {
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::writeN2] Invalid ACK response, expected 0xFF but got "
+        "0x%02X",
+        response);
+    throw new TRoboClawException("[RoboClaw::writeN2] Invalid ACK response");
+  }
+}
+
+// void RoboClaw::begin(long speed) {
+//   if (hserial) {
+//     hserial->begin(speed);
+//   }
+// #ifdef __AVR__
+//   else {
+//     sserial->begin(speed);
+//   }
+// #endif
+// }
+
+// bool RoboClaw::listen() {
+// #ifdef __AVR__
+//   if (sserial) {
+//     return sserial->listen();
+//   }
+// #endif
+//   return false;
+// }
+
+// bool RoboClaw::isListening() {
+// #ifdef __AVR__
+//   if (sserial) return sserial->isListening();
+// #endif
+//   return false;
+// }
+
+// bool RoboClaw::overflow() {
+// #ifdef __AVR__
+//   if (sserial) return sserial->overflow();
+// #endif
+//   return false;
+// }
+
+// int RoboClaw::peek() {
+//   if (hserial) return hserial->peek();
+// #ifdef __AVR__
+//   else
+//     return sserial->peek();
+// #endif
+//   return 0;
+// }
+
+// size_t RoboClaw::write(uint8_t byte) {
+//   if (hserial) return hserial->write(byte);
+// #ifdef __AVR__
+//   else
+//     return sserial->write(byte);
+// #endif
+//   return 0;
+// }
+
+// int RoboClaw::read() {
+//   if (hserial) return hserial->read();
+// #ifdef __AVR__
+//   else
+//     return sserial->read();
+// #endif
+//   return 0;
+// }
+
+// int RoboClaw::available() {
+//   if (hserial) return hserial->available();
+// #ifdef __AVR__
+//   else
+//     return sserial->available();
+// #endif
+//   return 0;
+// }
+
+// void RoboClaw::flush() {
+//   if (hserial) hserial->flush();
+// }
+
+// int RoboClaw::read(uint32_t timeout) {
+//   if (hserial) {
+//     uint32_t start = micros();
+//     // Empty buffer?
+//     while (!hserial->available()) {
+//       if ((micros() - start) >= timeout) return -1;
+//     }
+//     return hserial->read();
+//   }
+// #ifdef __AVR__
+//   else {
+//     if (sserial->isListening()) {
+//       uint32_t start = micros();
+//       // Empty buffer?
+//       while (!sserial->available()) {
+//         if ((micros() - start) >= timeout) return -1;
+//       }
+//       return sserial->read();
+//     }
+//   }
+// #endif
+//   return 0;
+// }
+
+// void RoboClaw::clear() {
+//   if (hserial) {
+//     while (hserial->available()) hserial->read();
+//   }
+// #ifdef __AVR__
+//   else {
+//     while (sserial->available()) sserial->read();
+//   }
+// #endif
+// }
+
+// void RoboClaw::crc_clear() { crc = 0; }
+
+// void RoboClaw::crc_update(uint8_t data) {
+//   int i;
+//   crc = crc ^ ((uint16_t)data << 8);
+//   for (i = 0; i < 8; i++) {
+//     if (crc & 0x8000)
+//       crc = (crc << 1) ^ 0x1021;
+//     else
+//       crc <<= 1;
+//   }
+// }
+
+// uint16_t RoboClaw::crc_get() { return crc; }
+
+// bool RoboClaw::write_n(uint8_t cnt, ...) {
+//   uint8_t trys = MAXRETRY;
+//   do {
+//     crc_clear();
+//     // send data with crc
+//     va_list marker;
+//     va_start(marker, cnt); /* Initialize variable arguments. */
+//     for (uint8_t index = 0; index < cnt; index++) {
+//       uint8_t data = va_arg(marker, int);
+//       crc_update(data);
+//       write(data);
+//     }
+//     va_end(marker); /* Reset variable arguments.      */
+//     uint16_t crc = crc_get();
+//     write(crc >> 8);
+//     write(crc);
+//     if (read(timeout) == 0xFF) return true;
+
+//     // RoboClaw manual: Add 10ms delay before retry to clear packet buffer
+//     if (trys > 0) delay(10);
+//   } while (trys--);
+//   return false;
+// }
+
+// bool RoboClaw::read_n(uint8_t cnt, uint8_t address, uint8_t cmd, ...) {
+//   uint32_t value = 0;
+//   uint8_t trys = MAXRETRY;
+//   int16_t data;
+//   do {
+//     flush();
+
+//     data = 0;
+//     crc_clear();
+//     write(address);
+//     crc_update(address);
+//     write(cmd);
+//     crc_update(cmd);
+
+//     // send data with crc
+//     va_list marker;
+//     va_start(marker, cmd); /* Initialize variable arguments. */
+//     for (uint8_t index = 0; index < cnt; index++) {
+//       uint32_t *ptr = va_arg(marker, uint32_t *);
+
+//       if (data != -1) {
+//         data = read(timeout);
+//         crc_update(data);
+//         value = (uint32_t)data << 24;
+//       } else {
+//         break;
+//       }
+
+//       if (data != -1) {
+//         data = read(timeout);
+//         crc_update(data);
+//         value |= (uint32_t)data << 16;
+//       } else {
+//         break;
+//       }
+
+//       if (data != -1) {
+//         data = read(timeout);
+//         crc_update(data);
+//         value |= (uint32_t)data << 8;
+//       } else {
+//         break;
+//       }
+
+//       if (data != -1) {
+//         data = read(timeout);
+//         crc_update(data);
+//         value |= (uint32_t)data;
+//       } else {
+//         break;
+//       }
+
+//       *ptr = value;
+//     }
+//     va_end(marker); /* Reset variable arguments.      */
+
+//     if (data != -1) {
+//       uint16_t ccrc;
+//       data = read(timeout);
+//       if (data != -1) {
+//         ccrc = data << 8;
+//         data = read(timeout);
+//         if (data != -1) {
+//           ccrc |= data;
+//           return crc_get() == ccrc;
+//         }
+//       }
+//     }
+
+//     // RoboClaw manual: Add 10ms delay before retry to clear packet buffer
+//     if (trys > 0) delay(10);
+//   } while (trys--);
+
+//   return false;
+// }
+
+// uint8_t RoboClaw::Read1(uint8_t address, uint8_t cmd, bool *valid) {
+//   if (valid) *valid = false;
+
+//   uint8_t value = 0;
+//   uint8_t trys = MAXRETRY;
+//   int16_t data;
+//   do {
+//     flush();
+
+//     crc_clear();
+//     write(address);
+//     crc_update(address);
+//     write(cmd);
+//     crc_update(cmd);
+
+//     data = read(timeout);
+//     crc_update(data);
+//     value = data;
+
+//     if (data != -1) {
+//       uint16_t ccrc;
+//       data = read(timeout);
+//       if (data != -1) {
+//         ccrc = data << 8;
+//         data = read(timeout);
+//         if (data != -1) {
+//           ccrc |= data;
+//           if (crc_get() == ccrc) {
+//             if (valid) *valid = true;
+//             return value;
+//           }
+//         }
+//       }
+//     }
+
+//     // RoboClaw manual: Add 10ms delay before retry to clear packet buffer
+//     if (trys > 0) delay(10);
+//   } while (trys--);
+
+//   return false;
+// }
+
+// uint16_t RoboClaw::Read2(uint8_t address, uint8_t cmd, bool *valid) {
+//   if (valid) *valid = false;
+
+//   uint16_t value = 0;
+//   uint8_t trys = MAXRETRY;
+//   int16_t data;
+//   do {
+//     flush();
+
+//     crc_clear();
+//     write(address);
+//     crc_update(address);
+//     write(cmd);
+//     crc_update(cmd);
+
+//     data = read(timeout);
+//     crc_update(data);
+//     value = (uint16_t)data << 8;
+
+//     if (data != -1) {
+//       data = read(timeout);
+//       crc_update(data);
+//       value |= (uint16_t)data;
+//     }
+
+//     if (data != -1) {
+//       uint16_t ccrc;
+//       data = read(timeout);
+//       if (data != -1) {
+//         ccrc = data << 8;
+//         data = read(timeout);
+//         if (data != -1) {
+//           ccrc |= data;
+//           if (crc_get() == ccrc) {
+//             if (valid) *valid = true;
+//             return value;
+//           }
+//         }
+//       }
+//     }
+
+//     // RoboClaw manual: Add 10ms delay before retry to clear packet buffer
+//     if (trys > 0) delay(10);
+//   } while (trys--);
+
+//   return false;
+// }
+
+// uint32_t RoboClaw::Read4(uint8_t address, uint8_t cmd, bool *valid) {
+//   if (valid) *valid = false;
+
+//   uint32_t value = 0;
+//   uint8_t trys = MAXRETRY;
+//   int16_t data;
+//   do {
+//     flush();
+
+//     crc_clear();
+//     write(address);
+//     crc_update(address);
+//     write(cmd);
+//     crc_update(cmd);
+
+//     data = read(timeout);
+//     crc_update(data);
+//     value = (uint32_t)data << 24;
+
+//     if (data != -1) {
+//       data = read(timeout);
+//       crc_update(data);
+//       value |= (uint32_t)data << 16;
+//     }
+
+//     if (data != -1) {
+//       data = read(timeout);
+//       crc_update(data);
+//       value |= (uint32_t)data << 8;
+//     }
+
+//     if (data != -1) {
+//       data = read(timeout);
+//       crc_update(data);
+//       value |= (uint32_t)data;
+//     }
+
+//     if (data != -1) {
+//       uint16_t ccrc;
+//       data = read(timeout);
+//       if (data != -1) {
+//         ccrc = data << 8;
+//         data = read(timeout);
+//         if (data != -1) {
+//           ccrc |= data;
+//           if (crc_get() == ccrc) {
+//             if (valid) *valid = true;
+//             return value;
+//           }
+//         }
+//       }
+//     }
+
+//     // RoboClaw manual: Add 10ms delay before retry to clear packet buffer
+//     if (trys > 0) delay(10);
+//   } while (trys--);
+
+//   return false;
+// }
+
+// uint32_t RoboClaw::Read4_1(uint8_t address, uint8_t cmd, uint8_t *status,
+//                            bool *valid) {
+//   if (valid) *valid = false;
+
+//   uint32_t value = 0;
+//   uint8_t trys = MAXRETRY;
+//   int16_t data;
+//   do {
+//     flush();
+
+//     crc_clear();
+//     write(address);
+//     crc_update(address);
+//     write(cmd);
+//     crc_update(cmd);
+
+//     data = read(timeout);
+//     crc_update(data);
+//     value = (uint32_t)data << 24;
+
+//     if (data != -1) {
+//       data = read(timeout);
+//       crc_update(data);
+//       value |= (uint32_t)data << 16;
+//     }
+
+//     if (data != -1) {
+//       data = read(timeout);
+//       crc_update(data);
+//       value |= (uint32_t)data << 8;
+//     }
+
+//     if (data != -1) {
+//       data = read(timeout);
+//       crc_update(data);
+//       value |= (uint32_t)data;
+//     }
+
+//     if (data != -1) {
+//       data = read(timeout);
+//       crc_update(data);
+//       if (status) *status = data;
+//     }
+
+//     if (data != -1) {
+//       uint16_t ccrc;
+//       data = read(timeout);
+//       if (data != -1) {
+//         ccrc = data << 8;
+//         data = read(timeout);
+//         if (data != -1) {
+//           ccrc |= data;
+//           if (crc_get() == ccrc) {
+//             if (valid) *valid = true;
+//             return value;
+//           }
+//         }
+//       }
+//     }
+
+//     // RoboClaw manual: Add 10ms delay before retry to clear packet buffer
+//     if (trys > 0) delay(10);
+//   } while (trys--);
+
+//   return false;
+// }
+
+// bool RoboClaw::ForwardM1(uint8_t address, uint8_t speed) {
+//   return write_n(3, address, M1FORWARD, speed);
+// }
+
+// bool RoboClaw::BackwardM1(uint8_t address, uint8_t speed) {
+//   return write_n(3, address, M1BACKWARD, speed);
+// }
+
+// bool RoboClaw::SetMinVoltageMainBattery(uint8_t address, uint8_t voltage) {
+//   return write_n(3, address, SETMINMB, voltage);
+// }
+
+// bool RoboClaw::SetMaxVoltageMainBattery(uint8_t address, uint8_t voltage) {
+//   return write_n(3, address, SETMAXMB, voltage);
+// }
+
+// bool RoboClaw::ForwardM2(uint8_t address, uint8_t speed) {
+//   return write_n(3, address, M2FORWARD, speed);
+// }
+
+// bool RoboClaw::BackwardM2(uint8_t address, uint8_t speed) {
+//   return write_n(3, address, M2BACKWARD, speed);
+// }
+
+// bool RoboClaw::ForwardBackwardM1(uint8_t address, uint8_t speed) {
+//   return write_n(3, address, M17BIT, speed);
+// }
+
+// bool RoboClaw::ForwardBackwardM2(uint8_t address, uint8_t speed) {
+//   return write_n(3, address, M27BIT, speed);
+// }
+
+// bool RoboClaw::ForwardMixed(uint8_t address, uint8_t speed) {
+//   return write_n(3, address, MIXEDFORWARD, speed);
+// }
+
+// bool RoboClaw::BackwardMixed(uint8_t address, uint8_t speed) {
+//   return write_n(3, address, MIXEDBACKWARD, speed);
+// }
+
+// bool RoboClaw::TurnRightMixed(uint8_t address, uint8_t speed) {
+//   return write_n(3, address, MIXEDRIGHT, speed);
+// }
+
+// bool RoboClaw::TurnLeftMixed(uint8_t address, uint8_t speed) {
+//   return write_n(3, address, MIXEDLEFT, speed);
+// }
+
+// bool RoboClaw::ForwardBackwardMixed(uint8_t address, uint8_t speed) {
+//   return write_n(3, address, MIXEDFB, speed);
+// }
+
+// bool RoboClaw::LeftRightMixed(uint8_t address, uint8_t speed) {
+//   return write_n(3, address, MIXEDLR, speed);
+// }
+
+// uint32_t RoboClaw::ReadEncM1(uint8_t address, uint8_t *status, bool *valid)
+// {
+//   return Read4_1(address, GETM1ENC, status, valid);
+// }
+
+// uint32_t RoboClaw::ReadEncM2(uint8_t address, uint8_t *status, bool *valid)
+// {
+//   return Read4_1(address, GETM2ENC, status, valid);
+// }
+
+// uint32_t RoboClaw::ReadSpeedM1(uint8_t address, uint8_t *status, bool
+// *valid)
+// {
+//   return Read4_1(address, GETM1SPEED, status, valid);
+// }
+
+// uint32_t RoboClaw::ReadSpeedM2(uint8_t address, uint8_t *status, bool
+// *valid)
+// {
+//   return Read4_1(address, GETM2SPEED, status, valid);
+// }
+
+// bool RoboClaw::ResetEncoders(uint8_t address) {
+//   return write_n(2, address, RESETENC);
+// }
+
+// bool RoboClaw::ReadVersion(uint8_t address, char *version) {
+//   int data;
+//   uint8_t trys = MAXRETRY;
+//   do {
+//     flush();
+
+//     data = 0;
+
+//     crc_clear();
+//     write(address);
+//     crc_update(address);
+//     write(GETVERSION);
+//     crc_update(GETVERSION);
+
+//     uint8_t i;
+//     for (i = 0; i < 48; i++) {
+//       if (data != -1) {
+//         data = read(timeout);
+//         version[i] = data;
+//         crc_update(version[i]);
+//         if (version[i] == 0) {
+//           uint16_t ccrc;
+//           data = read(timeout);
+//           if (data != -1) {
+//             ccrc = data << 8;
+//             data = read(timeout);
+//             if (data != -1) {
+//               ccrc |= data;
+//               return crc_get() == ccrc;
+//             }
+//           }
+//           break;
+//         }
+//       } else {
+//         break;
+//       }
+//     }
+
+//     // RoboClaw manual: Add 10ms delay before retry to clear packet buffer
+//     if (trys > 0) delay(10);
+//   } while (trys--);
+
+//   return false;
+// }
+
+// bool RoboClaw::SetEncM1(uint8_t address, int32_t val) {
+//   return write_n(6, address, SETM1ENCCOUNT, SetDWORDval(val));
+// }
+
+// bool RoboClaw::SetEncM2(uint8_t address, int32_t val) {
+//   return write_n(6, address, SETM2ENCCOUNT, SetDWORDval(val));
+// }
+
+// uint16_t RoboClaw::ReadMainBatteryVoltage(uint8_t address, bool *valid) {
+//   return Read2(address, GETMBATT, valid);
+// }
+
+// uint16_t RoboClaw::ReadLogicBatteryVoltage(uint8_t address, bool *valid) {
+//   return Read2(address, GETLBATT, valid);
+// }
+
+// bool RoboClaw::SetMinVoltageLogicBattery(uint8_t address, uint8_t voltage)
+// {
+//   return write_n(3, address, SETMINLB, voltage);
+// }
+
+// bool RoboClaw::SetMaxVoltageLogicBattery(uint8_t address, uint8_t voltage)
+// {
+//   return write_n(3, address, SETMAXLB, voltage);
+// }
+
+// bool RoboClaw::SetM1VelocityPID(uint8_t address, float kp_fp, float ki_fp,
+//                                 float kd_fp, uint32_t qpps) {
+//   uint32_t kp = kp_fp * 65536;
+//   uint32_t ki = ki_fp * 65536;
+//   uint32_t kd = kd_fp * 65536;
+//   return write_n(18, address, SETM1PID, SetDWORDval(kd), SetDWORDval(kp),
+//                  SetDWORDval(ki), SetDWORDval(qpps));
+// }
+
+// bool RoboClaw::SetM2VelocityPID(uint8_t address, float kp_fp, float ki_fp,
+//                                 float kd_fp, uint32_t qpps) {
+//   uint32_t kp = kp_fp * 65536;
+//   uint32_t ki = ki_fp * 65536;
+//   uint32_t kd = kd_fp * 65536;
+//   return write_n(18, address, SETM2PID, SetDWORDval(kd), SetDWORDval(kp),
+//                  SetDWORDval(ki), SetDWORDval(qpps));
+// }
+
+// uint32_t RoboClaw::ReadISpeedM1(uint8_t address, uint8_t *status, bool
+// *valid) {
+//   return Read4_1(address, GETM1ISPEED, status, valid);
+// }
+
+// uint32_t RoboClaw::ReadISpeedM2(uint8_t address, uint8_t *status, bool
+// *valid) {
+//   return Read4_1(address, GETM2ISPEED, status, valid);
+// }
+
+// bool RoboClaw::DutyM1(uint8_t address, uint16_t duty) {
+//   return write_n(4, address, M1DUTY, SetWORDval(duty));
+// }
+
+// bool RoboClaw::DutyM2(uint8_t address, uint16_t duty) {
+//   return write_n(4, address, M2DUTY, SetWORDval(duty));
+// }
+
+// bool RoboClaw::DutyM1M2(uint8_t address, uint16_t duty1, uint16_t duty2) {
+//   return write_n(6, address, MIXEDDUTY, SetWORDval(duty1),
+//   SetWORDval(duty2));
+// }
+
+// bool RoboClaw::SpeedM1(uint8_t address, uint32_t speed) {
+//   return write_n(6, address, M1SPEED, SetDWORDval(speed));
+// }
+
+// bool RoboClaw::SpeedM2(uint8_t address, uint32_t speed) {
+//   return write_n(6, address, M2SPEED, SetDWORDval(speed));
+// }
+
+// bool RoboClaw::SpeedM1M2(uint8_t address, uint32_t speed1, uint32_t speed2)
+// {
+//   return write_n(10, address, MIXEDSPEED, SetDWORDval(speed1),
+//                  SetDWORDval(speed2));
+// }
+
+// bool RoboClaw::SpeedAccelM1(uint8_t address, uint32_t accel, uint32_t
+// speed)
+// {
+//   return write_n(10, address, M1SPEEDACCEL, SetDWORDval(accel),
+//                  SetDWORDval(speed));
+// }
+
+// bool RoboClaw::SpeedAccelM2(uint8_t address, uint32_t accel, uint32_t
+// speed)
+// {
+//   return write_n(10, address, M2SPEEDACCEL, SetDWORDval(accel),
+//                  SetDWORDval(speed));
+// }
+// bool RoboClaw::SpeedAccelM1M2(uint8_t address, uint32_t accel, uint32_t
+// speed1,
+//                               uint32_t speed2) {
+//   return write_n(14, address, MIXEDSPEEDACCEL, SetDWORDval(accel),
+//                  SetDWORDval(speed1), SetDWORDval(speed2));
+// }
+
+// bool RoboClaw::SpeedDistanceM1(uint8_t address, uint32_t speed,
+//                                uint32_t distance, uint8_t flag) {
+//   return write_n(11, address, M1SPEEDDIST, SetDWORDval(speed),
+//                  SetDWORDval(distance), flag);
+// }
+
+// bool RoboClaw::SpeedDistanceM2(uint8_t address, uint32_t speed,
+//                                uint32_t distance, uint8_t flag) {
+//   return write_n(11, address, M2SPEEDDIST, SetDWORDval(speed),
+//                  SetDWORDval(distance), flag);
+// }
+
+// bool RoboClaw::SpeedDistanceM1M2(uint8_t address, uint32_t speed1,
+//                                  uint32_t distance1, uint32_t speed2,
+//                                  uint32_t distance2, uint8_t flag) {
+//   return write_n(19, address, MIXEDSPEEDDIST, SetDWORDval(speed1),
+//                  SetDWORDval(distance1), SetDWORDval(speed2),
+//                  SetDWORDval(distance2), flag);
+// }
+
+// bool RoboClaw::SpeedAccelDistanceM1(uint8_t address, uint32_t accel,
+//                                     uint32_t speed, uint32_t distance,
+//                                     uint8_t flag) {
+//   return write_n(15, address, M1SPEEDACCELDIST, SetDWORDval(accel),
+//                  SetDWORDval(speed), SetDWORDval(distance), flag);
+// }
+
+// bool RoboClaw::SpeedAccelDistanceM2(uint8_t address, uint32_t accel,
+//                                     uint32_t speed, uint32_t distance,
+//                                     uint8_t flag) {
+//   return write_n(15, address, M2SPEEDACCELDIST, SetDWORDval(accel),
+//                  SetDWORDval(speed), SetDWORDval(distance), flag);
+// }
+
+// bool RoboClaw::SpeedAccelDistanceM1M2(uint8_t address, uint32_t accel,
+//                                       uint32_t speed1, uint32_t distance1,
+//                                       uint32_t speed2, uint32_t distance2,
+//                                       uint8_t flag) {
+//   return write_n(23, address, MIXEDSPEEDACCELDIST, SetDWORDval(accel),
+//                  SetDWORDval(speed1), SetDWORDval(distance1),
+//                  SetDWORDval(speed2), SetDWORDval(distance2), flag);
+// }
+
+// bool RoboClaw::ReadBuffers(uint8_t address, uint8_t &depth1, uint8_t
+// &depth2)
+// {
+//   bool valid;
+//   uint16_t value = Read2(address, GETBUFFERS, &valid);
+//   if (valid) {
+//     depth1 = value >> 8;
+//     depth2 = value;
+//   }
+//   return valid;
+// }
+
+// bool RoboClaw::ReadPWMs(uint8_t address, int16_t &pwm1, int16_t &pwm2) {
+//   bool valid;
+//   uint32_t value = Read4(address, GETPWMS, &valid);
+//   if (valid) {
+//     pwm1 = value >> 16;
+//     pwm2 = value & 0xFFFF;
+//   }
+//   return valid;
+// }
+
+// bool RoboClaw::ReadCurrents(uint8_t address, int16_t &current1,
+//                             int16_t &current2) {
+//   bool valid;
+//   uint32_t value = Read4(address, GETCURRENTS, &valid);
+//   if (valid) {
+//     current1 = value >> 16;
+//     current2 = value & 0xFFFF;
+//   }
+//   return valid;
+// }
+
+// bool RoboClaw::SpeedAccelM1M2_2(uint8_t address, uint32_t accel1,
+//                                 uint32_t speed1, uint32_t accel2,
+//                                 uint32_t speed2) {
+//   return write_n(18, address, MIXEDSPEED2ACCEL, SetDWORDval(accel1),
+//                  SetDWORDval(speed1), SetDWORDval(accel2),
+//                  SetDWORDval(speed2));
+// }
+
+// bool RoboClaw::SpeedAccelDistanceM1M2_2(uint8_t address, uint32_t accel1,
+//                                         uint32_t speed1, uint32_t
+//                                         distance1, uint32_t accel2,
+//                                         uint32_t speed2, uint32_t
+//                                         distance2, uint8_t flag) {
+//   return write_n(27, address, MIXEDSPEED2ACCELDIST, SetDWORDval(accel1),
+//                  SetDWORDval(speed1), SetDWORDval(distance1),
+//                  SetDWORDval(accel2), SetDWORDval(speed2),
+//                  SetDWORDval(distance2), flag);
+// }
+
+// bool RoboClaw::DutyAccelM1(uint8_t address, uint16_t duty, uint32_t accel)
+// {
+//   return write_n(8, address, M1DUTYACCEL, SetWORDval(duty),
+//   SetDWORDval(accel));
+// }
+
+// bool RoboClaw::DutyAccelM2(uint8_t address, uint16_t duty, uint32_t accel)
+// {
+//   return write_n(8, address, M2DUTYACCEL, SetWORDval(duty),
+//   SetDWORDval(accel));
+// }
+
+// bool RoboClaw::DutyAccelM1M2(uint8_t address, uint16_t duty1, uint32_t
+// accel1,
+//                              uint16_t duty2, uint32_t accel2) {
+//   return write_n(14, address, MIXEDDUTYACCEL, SetWORDval(duty1),
+//                  SetDWORDval(accel1), SetWORDval(duty2),
+//                  SetDWORDval(accel2));
+// }
+
+// bool RoboClaw::ReadM1VelocityPID(uint8_t address, float &Kp_fp, float
+// &Ki_fp,
+//                                  float &Kd_fp, uint32_t &qpps) {
+//   uint32_t Kp, Ki, Kd;
+//   bool valid = read_n(4, address, READM1PID, &Kp, &Ki, &Kd, &qpps);
+//   Kp_fp = ((float)Kp) / 65536;
+//   Ki_fp = ((float)Ki) / 65536;
+//   Kd_fp = ((float)Kd) / 65536;
+//   return valid;
+// }
+
+// bool RoboClaw::ReadM2VelocityPID(uint8_t address, float &Kp_fp, float
+// &Ki_fp,
+//                                  float &Kd_fp, uint32_t &qpps) {
+//   uint32_t Kp, Ki, Kd;
+//   bool valid = read_n(4, address, READM2PID, &Kp, &Ki, &Kd, &qpps);
+//   Kp_fp = ((float)Kp) / 65536;
+//   Ki_fp = ((float)Ki) / 65536;
+//   Kd_fp = ((float)Kd) / 65536;
+//   return valid;
+// }
+
+// bool RoboClaw::SetMainVoltages(uint8_t address, uint16_t min, uint16_t max)
+// {
+//   return write_n(6, address, SETMAINVOLTAGES, SetWORDval(min),
+//   SetWORDval(max));
+// }
+
+// bool RoboClaw::SetLogicVoltages(uint8_t address, uint16_t min, uint16_t
+// max)
+// {
+//   return write_n(6, address, SETLOGICVOLTAGES, SetWORDval(min),
+//                  SetWORDval(max));
+// }
+
+// bool RoboClaw::ReadMinMaxMainVoltages(uint8_t address, uint16_t &min,
+//                                       uint16_t &max) {
+//   bool valid;
+//   uint32_t value = Read4(address, GETMINMAXMAINVOLTAGES, &valid);
+//   if (valid) {
+//     min = value >> 16;
+//     max = value & 0xFFFF;
+//   }
+//   return valid;
+// }
+
+// bool RoboClaw::ReadMinMaxLogicVoltages(uint8_t address, uint16_t &min,
+//                                        uint16_t &max) {
+//   bool valid;
+//   uint32_t value = Read4(address, GETMINMAXLOGICVOLTAGES, &valid);
+//   if (valid) {
+//     min = value >> 16;
+//     max = value & 0xFFFF;
+//   }
+//   return valid;
+// }
+
+// bool RoboClaw::SetM1PositionPID(uint8_t address, float kp_fp, float ki_fp,
+//                                 float kd_fp, uint32_t kiMax, uint32_t
+//                                 deadzone, uint32_t min, uint32_t max) {
+//   uint32_t kp = kp_fp * 1024;
+//   uint32_t ki = ki_fp * 1024;
+//   uint32_t kd = kd_fp * 1024;
+//   return write_n(30, address, SETM1POSPID, SetDWORDval(kd),
+//   SetDWORDval(kp),
+//                  SetDWORDval(ki), SetDWORDval(kiMax),
+//                  SetDWORDval(deadzone), SetDWORDval(min),
+//                  SetDWORDval(max));
+// }
+
+// bool RoboClaw::SetM2PositionPID(uint8_t address, float kp_fp, float ki_fp,
+//                                 float kd_fp, uint32_t kiMax, uint32_t
+//                                 deadzone, uint32_t min, uint32_t max) {
+//   uint32_t kp = kp_fp * 1024;
+//   uint32_t ki = ki_fp * 1024;
+//   uint32_t kd = kd_fp * 1024;
+//   return write_n(30, address, SETM2POSPID, SetDWORDval(kd),
+//   SetDWORDval(kp),
+//                  SetDWORDval(ki), SetDWORDval(kiMax),
+//                  SetDWORDval(deadzone), SetDWORDval(min),
+//                  SetDWORDval(max));
+// }
+
+// bool RoboClaw::ReadM1PositionPID(uint8_t address, float &Kp_fp, float
+// &Ki_fp,
+//                                  float &Kd_fp, uint32_t &KiMax,
+//                                  uint32_t &DeadZone, uint32_t &Min,
+//                                  uint32_t &Max) {
+//   uint32_t Kp, Ki, Kd;
+//   bool valid = read_n(7, address, READM1POSPID, &Kp, &Ki, &Kd, &KiMax,
+//                       &DeadZone, &Min, &Max);
+//   Kp_fp = ((float)Kp) / 1024;
+//   Ki_fp = ((float)Ki) / 1024;
+//   Kd_fp = ((float)Kd) / 1024;
+//   return valid;
+// }
+
+// bool RoboClaw::ReadM2PositionPID(uint8_t address, float &Kp_fp, float
+// &Ki_fp,
+//                                  float &Kd_fp, uint32_t &KiMax,
+//                                  uint32_t &DeadZone, uint32_t &Min,
+//                                  uint32_t &Max) {
+//   uint32_t Kp, Ki, Kd;
+//   bool valid = read_n(7, address, READM2POSPID, &Kp, &Ki, &Kd, &KiMax,
+//                       &DeadZone, &Min, &Max);
+//   Kp_fp = ((float)Kp) / 1024;
+//   Ki_fp = ((float)Ki) / 1024;
+//   Kd_fp = ((float)Kd) / 1024;
+//   return valid;
+// }
+
+// bool RoboClaw::SpeedAccelDeccelPositionM1(uint8_t address, uint32_t accel,
+//                                           uint32_t speed, uint32_t deccel,
+//                                           uint32_t position, uint8_t flag)
+//                                           {
+//   return write_n(19, address, M1SPEEDACCELDECCELPOS, SetDWORDval(accel),
+//                  SetDWORDval(speed), SetDWORDval(deccel),
+//                  SetDWORDval(position), flag);
+// }
+
+// bool RoboClaw::SpeedAccelDeccelPositionM2(uint8_t address, uint32_t accel,
+//                                           uint32_t speed, uint32_t deccel,
+//                                           uint32_t position, uint8_t flag)
+//                                           {
+//   return write_n(19, address, M2SPEEDACCELDECCELPOS, SetDWORDval(accel),
+//                  SetDWORDval(speed), SetDWORDval(deccel),
+//                  SetDWORDval(position), flag);
+// }
+
+// bool RoboClaw::SpeedAccelDeccelPositionM1M2(uint8_t address, uint32_t
+// accel1,
+//                                             uint32_t speed1, uint32_t
+//                                             deccel1, uint32_t position1,
+//                                             uint32_t accel2, uint32_t
+//                                             speed2, uint32_t deccel2,
+//                                             uint32_t position2, uint8_t
+//                                             flag) {
+//   return write_n(35, address, MIXEDSPEEDACCELDECCELPOS,
+//   SetDWORDval(accel1),
+//                  SetDWORDval(speed1), SetDWORDval(deccel1),
+//                  SetDWORDval(position1), SetDWORDval(accel2),
+//                  SetDWORDval(speed2), SetDWORDval(deccel2),
+//                  SetDWORDval(position2), flag);
+// }
+
+// bool RoboClaw::SetM1DefaultAccel(uint8_t address, uint32_t accel) {
+//   return write_n(6, address, SETM1DEFAULTACCEL, SetDWORDval(accel));
+// }
+
+// bool RoboClaw::SetM2DefaultAccel(uint8_t address, uint32_t accel) {
+//   return write_n(6, address, SETM2DEFAULTACCEL, SetDWORDval(accel));
+// }
+
+// bool RoboClaw::SetPinFunctions(uint8_t address, uint8_t S3mode, uint8_t
+// S4mode,
+//                                uint8_t S5mode) {
+//   return write_n(5, address, SETPINFUNCTIONS, S3mode, S4mode, S5mode);
+// }
+
+// bool RoboClaw::GetPinFunctions(uint8_t address, uint8_t &S3mode,
+//                                uint8_t &S4mode, uint8_t &S5mode) {
+//   uint8_t val1, val2, val3;
+//   uint8_t trys = MAXRETRY;
+//   int16_t data;
+//   do {
+//     flush();
+
+//     crc_clear();
+//     write(address);
+//     crc_update(address);
+//     write(GETPINFUNCTIONS);
+//     crc_update(GETPINFUNCTIONS);
+
+//     data = read(timeout);
+//     crc_update(data);
+//     val1 = data;
+
+//     if (data != -1) {
+//       data = read(timeout);
+//       crc_update(data);
+//       val2 = data;
+//     }
+
+//     if (data != -1) {
+//       data = read(timeout);
+//       crc_update(data);
+//       val3 = data;
+//     }
+
+//     if (data != -1) {
+//       uint16_t ccrc;
+//       data = read(timeout);
+//       if (data != -1) {
+//         ccrc = data << 8;
+//         data = read(timeout);
+//         if (data != -1) {
+//           ccrc |= data;
+//           if (crc_get() == ccrc) {
+//             S3mode = val1;
+//             S4mode = val2;
+//             S5mode = val3;
+//             return true;
+//           }
+//         }
+//       }
+//     }
+
+//     // RoboClaw manual: Add 10ms delay before retry to clear packet buffer
+//     if (trys > 0) delay(10);
+//   } while (trys--);
+
+//   return false;
+// }
+
+// bool RoboClaw::SetDeadBand(uint8_t address, uint8_t Min, uint8_t Max) {
+//   return write_n(4, address, SETDEADBAND, Min, Max);
+// }
+
+// bool RoboClaw::GetDeadBand(uint8_t address, uint8_t &Min, uint8_t &Max) {
+//   bool valid;
+//   uint16_t value = Read2(address, GETDEADBAND, &valid);
+//   if (valid) {
+//     Min = value >> 8;
+//     Max = value;
+//   }
+//   return valid;
+// }
+
+// bool RoboClaw::ReadEncoders(uint8_t address, uint32_t &enc1, uint32_t
+// &enc2)
+// {
+//   bool valid = read_n(2, address, GETENCODERS, &enc1, &enc2);
+//   return valid;
+// }
+
+// bool RoboClaw::ReadISpeeds(uint8_t address, uint32_t &ispeed1,
+//                            uint32_t &ispeed2) {
+//   bool valid = read_n(2, address, GETISPEEDS, &ispeed1, &ispeed2);
+//   return valid;
+// }
+
+// bool RoboClaw::RestoreDefaults(uint8_t address) {
+//   return write_n(2, address, RESTOREDEFAULTS);
+// }
+
+// bool RoboClaw::ReadTemp(uint8_t address, uint16_t &temp) {
+//   bool valid;
+//   temp = Read2(address, GETTEMP, &valid);
+//   return valid;
+// }
+
+// bool RoboClaw::ReadTemp2(uint8_t address, uint16_t &temp) {
+//   bool valid;
+//   temp = Read2(address, GETTEMP2, &valid);
+//   return valid;
+// }
+
+// uint32_t RoboClaw::ReadError(uint8_t address, bool *valid) {
+//   return Read4(address, GETERROR, valid) & 0x3FFFFFFF;  // Mask to 30 bits
+// }
+
+// bool RoboClaw::ReadEncoderModes(uint8_t address, uint8_t &M1mode,
+//                                 uint8_t &M2mode) {
+//   bool valid;
+//   uint16_t value = Read2(address, GETENCODERMODE, &valid);
+//   if (valid) {
+//     M1mode = value >> 8;
+//     M2mode = value;
+//   }
+//   return valid;
+// }
+
+// bool RoboClaw::SetM1EncoderMode(uint8_t address, uint8_t mode) {
+//   return write_n(3, address, SETM1ENCODERMODE, mode);
+// }
+
+// bool RoboClaw::SetM2EncoderMode(uint8_t address, uint8_t mode) {
+//   return write_n(3, address, SETM2ENCODERMODE, mode);
+// }
+
+// bool RoboClaw::WriteNVM(uint8_t address) {
+//   return write_n(6, address, WRITENVM, SetDWORDval(0xE22EAB7A));
+// }
+
+// bool RoboClaw::ReadNVM(uint8_t address) { return write_n(2, address,
+// READNVM); }
+
+// bool RoboClaw::SetConfig(uint8_t address, uint16_t config) {
+//   return write_n(4, address, SETCONFIG, SetWORDval(config));
+// }
+
+// bool RoboClaw::GetConfig(uint8_t address, uint16_t &config) {
+//   bool valid;
+//   uint16_t value = Read2(address, GETCONFIG, &valid);
+//   if (valid) {
+//     config = value;
+//   }
+//   return valid;
+// }
+
+// bool RoboClaw::SetM1MaxCurrent(uint8_t address, uint32_t max) {
+//   return write_n(10, address, SETM1MAXCURRENT, SetDWORDval(max),
+//                  SetDWORDval(0));
+// }
+
+// bool RoboClaw::SetM2MaxCurrent(uint8_t address, uint32_t max) {
+//   return write_n(10, address, SETM2MAXCURRENT, SetDWORDval(max),
+//                  SetDWORDval(0));
+// }
+
+// bool RoboClaw::ReadM1MaxCurrent(uint8_t address, uint32_t &max) {
+//   uint32_t tmax, dummy;
+//   bool valid = read_n(2, address, GETM1MAXCURRENT, &tmax, &dummy);
+//   if (valid) max = tmax;
+//   return valid;
+// }
+
+// bool RoboClaw::ReadM2MaxCurrent(uint8_t address, uint32_t &max) {
+//   uint32_t tmax, dummy;
+//   bool valid = read_n(2, address, GETM2MAXCURRENT, &tmax, &dummy);
+//   if (valid) max = tmax;
+//   return valid;
+// }
+
+// bool RoboClaw::SetPWMMode(uint8_t address, uint8_t mode) {
+//   return write_n(3, address, SETPWMMODE, mode);
+// }
+
+// bool RoboClaw::GetPWMMode(uint8_t address, uint8_t &mode) {
+//   bool valid;
+//   uint8_t value = Read1(address, GETPWMMODE, &valid);
+//   if (valid) {
+//     mode = value;
+//   }
+//   return valid;
+// }
