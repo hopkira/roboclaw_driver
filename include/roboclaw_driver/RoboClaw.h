@@ -165,9 +165,8 @@ class RoboClaw {
   };  // Only available via USB communications
 
   // public methods
-  RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
-           float m2MaxCurrent, std::string device_name, uint8_t device_port,
-           uint32_t baud_rate, bool do_debug = false,
+  RoboClaw(float m1MaxCurrent, float m2MaxCurrent, std::string device_name,
+           uint8_t device_port, uint32_t baud_rate, bool do_debug = false,
            bool do_low_level_debug = false);
 
   ~RoboClaw();

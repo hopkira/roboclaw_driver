@@ -11,6 +11,8 @@
 #include "roboclaw_driver/roboclaw_cmd_read_buffer_length.h"
 #include "roboclaw_driver/roboclaw_cmd_read_firmware_version.h"
 #include "roboclaw_driver/roboclaw_cmd_read_status.h"
+#include "roboclaw_driver/roboclaw_cmd_set_encoder_value.h"
+#include "roboclaw_driver/roboclaw_cmd_set_pid.h"
 
 using namespace std::chrono_literals;
 
@@ -51,22 +53,16 @@ RoboClawDriverNode::RoboClawDriverNode()
   this->declare_parameter("status_rate", 10.0);
   this->declare_parameter("wheel_radius", 0.0);
   this->declare_parameter("wheel_separation", 0.0);
-
-  {
-    rcl_interfaces::msg::ParameterDescriptor pd;
-    pd.dynamic_typing = true;
-    this->declare_parameter("m1_p", rclcpp::ParameterValue(7.26239), pd);
-    this->declare_parameter("m1_i", rclcpp::ParameterValue(2.43), pd);
-    this->declare_parameter("m1_d", rclcpp::ParameterValue(0.0), pd);
-    this->declare_parameter("m1_qpps", rclcpp::ParameterValue(2437), pd);
-
-    this->declare_parameter("m2_p", rclcpp::ParameterValue(7.26239), pd);
-    this->declare_parameter("m2_i", rclcpp::ParameterValue(2.43), pd);
-    this->declare_parameter("m2_d", rclcpp::ParameterValue(0.0), pd);
-    this->declare_parameter("m2_qpps", rclcpp::ParameterValue(2437), pd);
-  }
-
   this->declare_parameter("cmd_vel_timeout", 1.0);
+  this->declare_parameter("m1_p", 7.26239);
+  this->declare_parameter("m1_i", 2.43);
+  this->declare_parameter("m1_d", 0.0);
+  this->declare_parameter("m1_qpps", 2437);
+
+  this->declare_parameter("m2_p", 7.26239);
+  this->declare_parameter("m2_i", 2.43);
+  this->declare_parameter("m2_d", 0.0);
+  this->declare_parameter("m2_qpps", 2437);
 
   this->declare_parameter("publish_odom", true);
   this->declare_parameter("publish_tf", true);
@@ -76,6 +72,16 @@ RoboClawDriverNode::RoboClawDriverNode()
   this->declare_parameter("do_low_level_debug", false);
 
   // Get parameters
+  m1_p_ = this->get_parameter("m1_p").as_double();
+  m1_i_ = this->get_parameter("m1_i").as_double();
+  m1_d_ = this->get_parameter("m1_d").as_double();
+  m1_qpps_ = this->get_parameter("m1_qpps").as_int();
+
+  m2_p_ = this->get_parameter("m2_p").as_double();
+  m2_i_ = this->get_parameter("m2_i").as_double();
+  m2_d_ = this->get_parameter("m2_d").as_double();
+  m2_qpps_ = this->get_parameter("m2_qpps").as_int();
+
   device_name_ = this->get_parameter("device_name").as_string();
   baud_rate_ = this->get_parameter("baud_rate").as_int();
   device_timeout_ = this->get_parameter("device_timeout").as_int();
@@ -117,24 +123,6 @@ RoboClawDriverNode::RoboClawDriverNode()
     }
   };
 
-  // Read PID parameters as floats and convert to fixed-point (TeensyV2
-  // compatibility)
-  double m1_p_float = get_num("m1_p", 7.26239);
-  double m1_i_float = get_num("m1_i", 2.43);
-  double m1_d_float = get_num("m1_d", 0.0);
-  m1_p_ = static_cast<uint32_t>(m1_p_float * 65536.0);
-  m1_i_ = static_cast<uint32_t>(m1_i_float * 65536.0);
-  m1_d_ = static_cast<uint32_t>(m1_d_float * 65536.0);
-  m1_qpps_ = static_cast<int>(get_num("m1_qpps", 2437));
-
-  double m2_p_float = get_num("m2_p", 7.26239);
-  double m2_i_float = get_num("m2_i", 2.43);
-  double m2_d_float = get_num("m2_d", 0.0);
-  m2_p_ = static_cast<uint32_t>(m2_p_float * 65536.0);
-  m2_i_ = static_cast<uint32_t>(m2_i_float * 65536.0);
-  m2_d_ = static_cast<uint32_t>(m2_d_float * 65536.0);
-  m2_qpps_ = static_cast<int>(get_num("m2_qpps", 2437));
-
   accel_ = this->get_parameter("accel").as_int();
 
   cmd_vel_timeout_ = this->get_parameter("cmd_vel_timeout").as_double();
@@ -161,13 +149,13 @@ RoboClawDriverNode::RoboClawDriverNode()
               encoder_counts_per_revolution_);
   RCLCPP_INFO(this->get_logger(), "joint_states_rate: %.1f",
               joint_states_rate_);
-  RCLCPP_INFO(this->get_logger(), "m1_d: %.6f -> %u", m1_d_float, m1_d_);
-  RCLCPP_INFO(this->get_logger(), "m1_i: %.6f -> %u", m1_i_float, m1_i_);
-  RCLCPP_INFO(this->get_logger(), "m1_p: %.6f -> %u", m1_p_float, m1_p_);
+  RCLCPP_INFO(this->get_logger(), "m1_d: %.6f", m1_d_);
+  RCLCPP_INFO(this->get_logger(), "m1_i: %.6f", m1_i_);
+  RCLCPP_INFO(this->get_logger(), "m1_p: %.6f", m1_p_);
   RCLCPP_INFO(this->get_logger(), "m1_qpps: %d", m1_qpps_);
-  RCLCPP_INFO(this->get_logger(), "m2_d: %.6f -> %u", m2_d_float, m2_d_);
-  RCLCPP_INFO(this->get_logger(), "m2_i: %.6f -> %u", m2_i_float, m2_i_);
-  RCLCPP_INFO(this->get_logger(), "m2_p: %.6f -> %u", m2_p_float, m2_p_);
+  RCLCPP_INFO(this->get_logger(), "m2_d: %.6f", m2_d_);
+  RCLCPP_INFO(this->get_logger(), "m2_i: %.6f", m2_i_);
+  RCLCPP_INFO(this->get_logger(), "m2_p: %.6f", m2_p_);
   RCLCPP_INFO(this->get_logger(), "m2_qpps: %d", m2_qpps_);
   RCLCPP_INFO(this->get_logger(), "max_angular_velocity: %.1f",
               max_angular_velocity_);
@@ -192,11 +180,9 @@ RoboClawDriverNode::RoboClawDriverNode()
   RCLCPP_INFO(this->get_logger(), "===================================");
 
   // Initialize RoboClaw
-  RoboClaw::TPIDQ m1_pid = {m1_p_float, m1_i_float, m1_d_float, m1_qpps_, 0.0f};
-  RoboClaw::TPIDQ m2_pid = {m2_p_float, m2_i_float, m2_d_float, m2_qpps_, 0.0f};
-  roboclaw_ = std::make_unique<RoboClaw>(
-      m1_pid, m2_pid, max_m1_current_, max_m2_current_, device_name_, address_,
-      baud_rate_, do_debug_, do_low_level_debug_);
+  roboclaw_ = std::make_unique<RoboClaw>(max_m1_current_, max_m2_current_,
+                                         device_name_, address_, baud_rate_,
+                                         do_debug_, do_low_level_debug_);
 
   if (!initialize_roboclaw()) {
     RCLCPP_ERROR(this->get_logger(), "Failed to initialize RoboClaw driver");
@@ -263,16 +249,28 @@ bool RoboClawDriverNode::initialize_roboclaw() {
   RCLCPP_INFO(this->get_logger(), "RoboClaw Firmware Version: %s",
               version.c_str());
 
+  CmdSetPid command_m1_pid(*roboclaw_, RoboClaw::kM1, m1_p_, m1_i_, m1_d_,
+                           m1_qpps_);
+  command_m1_pid.execute();
+  CmdSetPid command_m2_pid(*roboclaw_, RoboClaw::kM2, m2_p_, m2_i_, m2_d_,
+                           m2_qpps_);
+  command_m2_pid.execute();
+
+  CmdSetEncoderValue m1(*roboclaw_, RoboClaw::kM1, 0);
+  m1.execute();
+  CmdSetEncoderValue m2(*roboclaw_, RoboClaw::kM2, 0);
+  m2.execute();
+
   motors_initialized_ = true;
   return true;
 }
 
 void RoboClawDriverNode::main_loop() {
-  roboclaw_->writeN2(4, address_, RoboClaw::M1DUTY, SetWORDval(24000));
-  roboclaw_->debug_log_.showLog();
+  // roboclaw_->writeN2(4, address_, RoboClaw::M1DUTY, SetWORDval(24000));
+  // roboclaw_->debug_log_.showLog();
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-  return;
+  // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  // return;
 
   auto now = this->get_clock()->now();
 
@@ -290,34 +288,40 @@ void RoboClawDriverNode::main_loop() {
       (int32_t)fabs(target_left_speed * max_seconds_uncommanded_travel_);
   const int32_t m2_max_distance_quad_pulses =
       (int32_t)fabs(target_right_speed * max_seconds_uncommanded_travel_);
-  // CmdDoBufferedM1M2DriveSpeedAccelDistance cmd2(
-  //     *roboclaw_, accel_, target_left_speed, m1_max_distance_quad_pulses,
-  //     target_right_speed, m2_max_distance_quad_pulses);
-  // cmd2.execute();
-  target_left_speed = 0;
-  target_right_speed = 0;
-  roboclaw_->writeN2(10, address_, 37, SetDWORDval(target_left_speed),
-                     SetDWORDval(target_right_speed));
-  std::this_thread::sleep_for(std::chrono::milliseconds(20));  // ###
-  uint32_t current_status;
-  CmdReadStatus cmd3(*roboclaw_, current_status);
-  cmd3.execute();
-  RCLCPP_INFO(this->get_logger(), "Status: 0x%04X", current_status);
+  CmdDoBufferedM1M2DriveSpeedAccelDistance cmd2(
+      *roboclaw_, accel_, target_left_speed, m1_max_distance_quad_pulses,
+      target_right_speed, m2_max_distance_quad_pulses);
+  cmd2.execute();
 
-  // roboclaw_->writeN2(
-  //     23, address_, RoboClaw::MIXEDSPEEDACCELDIST, SetDWORDval(3000),
-  //     SetDWORDval(target_left_speed),
-  //     SetDWORDval(m1_max_distance_quad_pulses),
-  //     SetDWORDval(target_right_speed),
-  //     SetDWORDval(m2_max_distance_quad_pulses), 1 /* Cancel any previous
-  //     command. */
+  // roboclaw_->writeN2(10, address_, 37, SetDWORDval(target_left_speed),
+  //                    SetDWORDval(target_right_speed));
+  // roboclaw_->debug_log_.showLog();
+
+  // uint8_t m1_buf_len = 0;
+  // uint8_t m2_buf_len = 0;
+  // CmdReadBufferLength cmd4(*roboclaw_, m1_buf_len, m2_buf_len);
+  // cmd4.execute();
+  // RCLCPP_INFO(this->get_logger(), "M1 buf len: %u, M2 buf len: %u",
+  // m1_buf_len,
+  //             m2_buf_len);
+
+  return;
+
+  // std::this_thread::sleep_for(std::chrono::milliseconds(20));  // ###
+
+  // uint32_t current_status;
+  // CmdReadStatus cmd3(*roboclaw_, current_status);
+  // cmd3.execute();
+  // RCLCPP_INFO(this->get_logger(), "Status: 0x%04X", current_status);
+
+  // roboclaw_->writeN2(23, address_, RoboClaw::MIXEDSPEEDACCELDIST,
+  //                    SetDWORDval(3000), SetDWORDval(target_left_speed),
+  //                    SetDWORDval(m1_max_distance_quad_pulses),
+  //                    SetDWORDval(target_right_speed),
+  //                    SetDWORDval(m2_max_distance_quad_pulses), 1 /* Cancel
+  //                    any previous command. */
   // );
-  uint8_t m1_buf_len = 0;
-  uint8_t m2_buf_len = 0;
-  CmdReadBufferLength cmd4(*roboclaw_, m1_buf_len, m2_buf_len);
-  cmd4.execute();
-  RCLCPP_INFO(this->get_logger(), "M1 buf len: %u, M2 buf len: %u", m1_buf_len,
-              m2_buf_len);
+  // roboclaw_->debug_log_.showLog();
 
   // Read sensor data and update odometry
   // read_sensors();

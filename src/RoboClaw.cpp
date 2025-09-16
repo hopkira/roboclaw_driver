@@ -35,10 +35,9 @@
 
 const char *RoboClaw::motorNames_[] = {"M1", "M2", "NONE"};
 
-RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
-                   float m2MaxCurrent, std::string device_name,
-                   uint8_t device_port, uint32_t baud_rate, bool(do_debug),
-                   bool do_low_level_debug)
+RoboClaw::RoboClaw(float m1MaxCurrent, float m2MaxCurrent,
+                   std::string device_name, uint8_t device_port,
+                   uint32_t baud_rate, bool(do_debug), bool do_low_level_debug)
     : baud_rate_(baud_rate),
       device_name_(device_name),
       device_port_(device_port),
@@ -50,15 +49,6 @@ RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
       portAddress_(128),
       debug_log_(this) {
   openPort();
-  CmdSetPid command_m1_pid(*this, kM1, m1Pid.p, m1Pid.i, m1Pid.d, m1Pid.qpps);
-  command_m1_pid.execute();
-  CmdSetPid command_m2_pid(*this, kM2, m2Pid.p, m2Pid.i, m2Pid.d, m2Pid.qpps);
-  command_m2_pid.execute();
-
-  CmdSetEncoderValue m1(*this, kM1, 0);
-  m1.execute();
-  CmdSetEncoderValue m2(*this, kM2, 0);
-  m2.execute();
 
   // Set a serial timeout of 1 second (10 deciseconds)
   // CmdSetSerialTimeout timeout_cmd(*this, 100);

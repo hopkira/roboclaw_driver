@@ -141,6 +141,6 @@ class RoboClawDriverNode : public rclcpp::Node {
   static constexpr uint32_t MAX_ENCODER_RETRIES = 5;
 
   // Constants
-  static constexpr double MAIN_LOOP_FREQUENCY = 100.0;  // Hz
+  static constexpr double MAIN_LOOP_FREQUENCY = 30.0;  // Hz
   static constexpr uint8_t ROBOCLAW_ADDRESS = 0x80;
 };
