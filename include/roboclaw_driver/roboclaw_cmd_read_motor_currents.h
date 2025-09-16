@@ -20,7 +20,9 @@ class CmdReadMotorCurrents : public Cmd {
                                 motorCurrents_.m1Current,
                                 motorCurrents_.m2Current);
 
-      if (motorCurrents_.m1Current > roboclaw_.maxM1Current_) {
+      // Only enforce current limits if configured (> 0)
+      if (roboclaw_.maxM1Current_ > 0.0 &&
+          motorCurrents_.m1Current > roboclaw_.maxM1Current_) {
         roboclaw_.motorAlarms_ |= RoboClaw::kM1_OVER_CURRENT_ALARM;
         RCUTILS_LOG_ERROR(
             "[RoboClaw::CmdReadMotorCurrents] Motor 1 over current. Max "
@@ -31,7 +33,8 @@ class CmdReadMotorCurrents : public Cmd {
         roboclaw_.motorAlarms_ &= ~RoboClaw::kM1_OVER_CURRENT_ALARM;
       }
 
-      if (motorCurrents_.m2Current > roboclaw_.maxM2Current_) {
+      if (roboclaw_.maxM2Current_ > 0.0 &&
+          motorCurrents_.m2Current > roboclaw_.maxM2Current_) {
         roboclaw_.motorAlarms_ |= RoboClaw::kM2_OVER_CURRENT_ALARM;
         RCUTILS_LOG_ERROR(
             "[RoboClaw::CmdReadMotorCurrents] Motor 2 over current. Max "

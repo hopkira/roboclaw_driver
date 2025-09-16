@@ -84,29 +84,37 @@ RoboClaw::~RoboClaw() {
 void RoboClaw::openPort() {
   RCUTILS_LOG_INFO("[RoboClaw::openPort] about to open port: %s",
                    device_name_.c_str());
-  device_port_ = open(device_name_.c_str(), O_RDWR | O_NOCTTY);
+  device_port_ = open(device_name_.c_str(), O_RDWR | O_NOCTTY /*| O_SYNC*/);
   if (device_port_ < 0) {
     RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to open USB port: %s, errno: (%d) "
-        "%s",
+        "[RoboClaw::openPort] Unable to open USB port: %s, errno: (%d) %s",
         device_name_.c_str(), errno, strerror(errno));
     throw new TRoboClawException(
         "[RoboClaw::openPort] Unable to open USB port");
   }
 
-  // Fetch the current port settings.
+  // Fetch and set raw options
   struct termios portOptions;
-  int ret = 0;
-
-  ret = tcgetattr(device_port_, &portOptions);
-  if (ret < 0) {
-    RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to get terminal options "
-        "(tcgetattr), error: %d: %s",
-        errno, strerror(errno));
-    throw new TRoboClawException(
-        "[RoboClaw::openPort] Unable to get terminal options (tcgetattr)");
+  if (tcgetattr(device_port_, &portOptions) < 0) {
+    RCUTILS_LOG_ERROR("[RoboClaw::openPort] tcgetattr failed: %d: %s", errno,
+                      strerror(errno));
+    throw new TRoboClawException("[RoboClaw::openPort] tcgetattr failed");
   }
+
+  // Make fully raw; then set baud and a couple explicit flags
+  cfmakeraw(&portOptions);
+  portOptions.c_cflag |= (CLOCAL | CREAD);
+  portOptions.c_cflag &= ~CRTSCTS;  // no HW flow control
+
+  // 8N1
+  portOptions.c_cflag &= ~PARENB;
+  portOptions.c_cflag &= ~CSTOPB;
+  portOptions.c_cflag &= ~CSIZE;
+  portOptions.c_cflag |= CS8;
+
+  // Non-canonical, tune read behavior. Require at least 1 byte, modest timeout
+  portOptions.c_cc[VMIN] = 1;   // block until at least 1 byte
+  portOptions.c_cc[VTIME] = 2;  // 0.2s inter-byte timeout (deciseconds)
 
   speed_t baud;
   switch (baud_rate_) {
@@ -134,62 +142,17 @@ void RoboClaw::openPort() {
       throw new TRoboClawException(
           "[RoboClaw::openPort] Unsupported baud rate");
   }
-
-  if (cfsetispeed(&portOptions, baud) < 0) {
-    RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to set terminal input speed "
-        "(cfsetispeed)");
-    throw new TRoboClawException(
-        "[RoboClaw::openPort] Unable to set terminal input speed "
-        "(cfsetispeed)");
-  }
-  if (cfsetospeed(&portOptions, baud) < 0) {
-    RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to set terminal output speed "
-        "(cfsetospeed)");
-    throw new TRoboClawException(
-        "[RoboClaw::openPort] Unable to set terminal output speed "
-        "(cfsetospeed)");
-  }
-
-  // Configure other settings
-  portOptions.c_cflag &= ~PARENB;   // Disable parity.
-  portOptions.c_cflag &= ~CSTOPB;   // 1 stop bit
-  portOptions.c_cflag &= ~CSIZE;    // Clear data size bits
-  portOptions.c_cflag |= CS8;       // 8 data bits
-  portOptions.c_cflag &= ~CRTSCTS;  // Disable hardware flow control
-  portOptions.c_cflag |=
-      CREAD | CLOCAL;  // Enable read and ignore control lines
-
-  portOptions.c_lflag &= ~ICANON;  // Disable canonical mode
-  portOptions.c_lflag &= ~ECHO;    // Disable echo
-  portOptions.c_lflag &= ~ECHOE;   // Disable erasure
-  portOptions.c_lflag &= ~ECHONL;  // Disable new-line echo
-  portOptions.c_lflag &=
-      ~ISIG;  // Disable interpretation of INTR, QUIT and SUSP
-
-  portOptions.c_iflag &=
-      ~(IXON | IXOFF | IXANY);  // Disable software flow control
-  portOptions.c_iflag &=
-      ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR |
-        ICRNL);  // Disable special handling of received bytes
-
-  portOptions.c_oflag &= ~OPOST;  // Disable output processing
-
-  portOptions.c_cc[VMIN] = 1;    // Wait for at least 1 byte
-  portOptions.c_cc[VTIME] = 10;  // Timeout in deciseconds (1 second)
+  cfsetispeed(&portOptions, baud);
+  cfsetospeed(&portOptions, baud);
 
   if (tcsetattr(device_port_, TCSANOW, &portOptions) != 0) {
-    RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to set terminal options "
-        "(tcsetattr)");
-    throw new TRoboClawException(
-        "[RoboClaw::openPort] Unable to set terminal options "
-        "(tcsetattr)");
+    RCUTILS_LOG_ERROR("[RoboClaw::openPort] tcsetattr failed");
+    throw new TRoboClawException("[RoboClaw::openPort] tcsetattr failed");
   }
 
-  // Flush any existing data in input and output buffers
+  // Flush stale data and let the device settle
   tcflush(device_port_, TCIOFLUSH);
+  usleep(2000);
 }
 
 uint16_t RoboClaw::get2ByteCommandResult2(uint8_t command) {
@@ -198,6 +161,8 @@ uint16_t RoboClaw::get2ByteCommandResult2(uint8_t command) {
   updateCrc(crc, command);
   writeByte2(portAddress_);
   writeByte2(command);
+  // Give the device a short moment before we start reading
+  usleep(300);
   unsigned short result = 0;
   uint8_t datum = readByteWithTimeout2();
   result |= datum << 8;
@@ -213,12 +178,17 @@ uint16_t RoboClaw::get2ByteCommandResult2(uint8_t command) {
   datum = readByteWithTimeout2();
   responseCrc |= datum;
   if (responseCrc == crc) {
+    // Small inter-command gap
+    usleep(200);
     return result;
   } else {
     RCUTILS_LOG_ERROR(
         "[RoboClaw::get2ByteCommandResult2] invalid CRC expected: "
         "0x%02X, got: 0x%02X",
         crc, responseCrc);
+    // Resync on CRC failure
+    tcflush(device_port_, TCIFLUSH);
+    usleep(2000);
     throw new TRoboClawException(
         "[RoboClaw::get2ByteCommandResult2 INVALID CRC");
     return 0;
@@ -231,6 +201,8 @@ uint32_t RoboClaw::getUlongCommandResult2(uint8_t command) {
   updateCrc(crc, command);
   writeByte2(portAddress_);
   writeByte2(command);
+  // Short pacing before reading reply bytes
+  usleep(300);
   unsigned long result = 0;
   uint8_t datum = readByteWithTimeout2();
   result |= datum << 24;
@@ -251,6 +223,7 @@ uint32_t RoboClaw::getUlongCommandResult2(uint8_t command) {
   datum = readByteWithTimeout2();
   responseCrc |= datum;
   if (responseCrc == crc) {
+    usleep(200);
     return result;
   }
 
@@ -258,6 +231,9 @@ uint32_t RoboClaw::getUlongCommandResult2(uint8_t command) {
       "[RoboClaw::getUlongCommandResult2] Expected CRC of: 0x%02X, but "
       "got: 0x%02X",
       int(crc), int(responseCrc));
+  // Resync on CRC failure
+  tcflush(device_port_, TCIFLUSH);
+  usleep(2000);
   throw new TRoboClawException(
       "[RoboClaw::getUlongCommandResult2] INVALID CRC");
   return 0;
@@ -280,12 +256,42 @@ uint32_t RoboClaw::getULongCont2(uint16_t &crc) {
   return result;
 }
 
+uint8_t RoboClaw::getByteCommandResult2(uint8_t command) {
+  uint16_t crc = 0;
+  updateCrc(crc, portAddress_);
+  updateCrc(crc, command);
+  writeByte2(portAddress_);
+  writeByte2(command);
+  // Short pacing before reading reply
+  usleep(300);
+  uint8_t result = readByteWithTimeout2();
+  updateCrc(crc, result);
+  uint16_t responseCrc = 0;
+  uint8_t datum = readByteWithTimeout2();
+  responseCrc = static_cast<uint16_t>(datum) << 8;
+  datum = readByteWithTimeout2();
+  responseCrc |= datum;
+  if (responseCrc == crc) {
+    usleep(200);
+    return result;
+  }
+  RCUTILS_LOG_ERROR(
+      "[RoboClaw::getByteCommandResult2] Expected CRC of: 0x%02X, but got: "
+      "0x%02X",
+      int(crc), int(responseCrc));
+  // Resync on CRC failure
+  tcflush(device_port_, TCIFLUSH);
+  usleep(2000);
+  throw new TRoboClawException("[RoboClaw::getByteCommandResult2] INVALID CRC");
+  return 0;
+}
+
 uint8_t RoboClaw::readByteWithTimeout2() {
   struct pollfd ufd[1];
   ufd[0].fd = device_port_;
   ufd[0].events = POLLIN;
 
-  int retval = poll(ufd, 1, 11);
+  int retval = poll(ufd, 1, 50);  // increase timeout for slower pacing
   if (retval < 0) {
     RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Poll failed (%d) %s",
                       errno, strerror(errno));
@@ -298,7 +304,9 @@ uint8_t RoboClaw::readByteWithTimeout2() {
     throw new TRoboClawException("[RoboClaw::readByteWithTimeout2 TIMEOUT");
   } else if (ufd[0].revents & POLLERR) {
     RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Error on socket");
-    restartPort();
+    // Do not restart port mid-transaction; flush and resync instead
+    tcflush(device_port_, TCIFLUSH);
+    // usleep(2000);
     throw new TRoboClawException(
         "[RoboClaw::readByteWithTimeout2 Error on socket");
   } else if (ufd[0].revents & POLLIN) {
@@ -382,24 +390,30 @@ void RoboClaw::writeByte2(uint8_t byte) {
 void RoboClaw::writeN2(uint8_t cnt, ...) {
   uint16_t crc = 0;
   va_list marker;
-  va_start(marker, cnt); /* Initialize variable arguments. */
+  va_start(marker, cnt);
   for (uint8_t index = 0; index < cnt; index++) {
     uint8_t data = va_arg(marker, int);
     updateCrc(crc, data);
     writeByte2(data);
   }
-  va_end(marker); /* Reset variable arguments.      */
+  va_end(marker);
+
   writeByte2(crc >> 8);
   writeByte2(crc);
 
+  // Ensure all bytes are physically sent before waiting for ACK
+  tcdrain(device_port_);
+  // Small guard time similar to Teensy’s natural pacing
+  // usleep(300);  // optional: try 200–500 us if needed
+
   uint8_t response = readByteWithTimeout2();
-  if (response == 0xFF)
-    return;
-  else {
+  if (response != 0xFF) {
     RCUTILS_LOG_ERROR(
         "[RoboClaw::writeN2] Invalid ACK response, expected 0xFF but got "
         "0x%02X",
-        response);
+        response);  // Resync on invalid ACK
+    tcflush(device_port_, TCIFLUSH);
+    usleep(20000);
     throw new TRoboClawException("[RoboClaw::writeN2] Invalid ACK response");
   }
 }

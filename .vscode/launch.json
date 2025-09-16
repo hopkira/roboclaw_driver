@@ -84,10 +84,26 @@
                     "description": "Set source directories for headers",
                     "text": "directory /home/ros/a_ws/src/roboclaw_driver/include",
                     "ignoreFailures": true
+                },
+                {
+                    "description": "Set workspace root",
+                    "text": "directory /home/ros/a_ws",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set compilation directory",
+                    "text": "directory /home/ros/a_ws/build/roboclaw_driver",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Show source mapping",
+                    "text": "show directories",
+                    "ignoreFailures": true
                 }
             ],
             "sourceFileMap": {
-                "/home/ros/a_ws/build/roboclaw_driver": "/home/ros/a_ws/src/roboclaw_driver"
+                "/home/ros/a_ws/build/roboclaw_driver": "/home/ros/a_ws/src/roboclaw_driver",
+                "/home/ros/a_ws/src": "/home/ros/a_ws/src"
             },
             "miDebuggerPath": "/usr/bin/gdb",
             "logging": {
@@ -120,10 +136,16 @@
                     "description": "Set source directories for headers",
                     "text": "directory /home/ros/a_ws/src/roboclaw_driver/include",
                     "ignoreFailures": true
+                },
+                {
+                    "description": "Set workspace root",
+                    "text": "directory /home/ros/a_ws",
+                    "ignoreFailures": true
                 }
             ],
             "sourceFileMap": {
-                "/home/ros/a_ws/build/roboclaw_driver": "/home/ros/a_ws/src/roboclaw_driver"
+                "/home/ros/a_ws/build/roboclaw_driver": "/home/ros/a_ws/src/roboclaw_driver",
+                "/home/ros/a_ws/src": "/home/ros/a_ws/src"
             },
             "miDebuggerPath": "/usr/bin/gdb"
         }

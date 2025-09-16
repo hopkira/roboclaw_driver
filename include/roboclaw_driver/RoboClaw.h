@@ -189,6 +189,7 @@ class RoboClaw {
   uint16_t get2ByteCommandResult2(uint8_t command);
   uint32_t getUlongCommandResult2(uint8_t command);
   uint32_t getULongCont2(uint16_t &crc);
+  uint8_t getByteCommandResult2(uint8_t command);
 
   // Open the RoboClaw USB port.
   void openPort();
@@ -398,9 +399,6 @@ class RoboClaw {
         if (written > 0) {
           next_write_log_index_ += written;
         }
-        if ((next_write_log_index_ > 0) && (write_log_[0] == '8')) {
-          RCUTILS_LOG_INFO("Whoops!");
-        }
       }
     }
 
@@ -440,8 +438,9 @@ class RoboClaw {
   friend class CmdSetSerialTimeout;
   friend class CmdSetPid;
 
- protected:
+ public:  // ###
   DebugLog debug_log_;
 
+ protected:
   static const char *motorNames_[];
 };

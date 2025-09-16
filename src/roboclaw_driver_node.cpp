@@ -14,6 +14,10 @@
 
 using namespace std::chrono_literals;
 
+#define SetWORDval(arg) (uint8_t)(((uint32_t)arg) >> 8), (uint8_t)arg
+#define SetDWORDval(arg) \
+  (uint8_t)(arg >> 24), (uint8_t)(arg >> 16), (uint8_t)(arg >> 8), (uint8_t)arg
+
 RoboClawDriverNode::RoboClawDriverNode()
     : Node("roboclaw_driver"),
       roboclaw_(nullptr),
@@ -264,6 +268,12 @@ bool RoboClawDriverNode::initialize_roboclaw() {
 }
 
 void RoboClawDriverNode::main_loop() {
+  roboclaw_->writeN2(4, address_, RoboClaw::M1DUTY, SetWORDval(24000));
+  roboclaw_->debug_log_.showLog();
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  return;
+
   auto now = this->get_clock()->now();
 
   // Handle cmd_vel processing and motor commands
