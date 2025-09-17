@@ -22,7 +22,7 @@ roboclaw_driver:
 
     # Rate limiting commands. The driver will clip any value
     # exceeding these limits.
-    max_angular_velocity: 0.07
+    max_angular_velocity: 0.7
     max_linear_velocity: 0.3
 
     max_seconds_uncommanded_travel: 0.2 # Maximum time to allow robot to travel without receiving new commands

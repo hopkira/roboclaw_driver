@@ -182,21 +182,21 @@ void RoboClawDriverNode::main_loop() {
   // Handle cmd_vel processing and motor commands
   // handle_cmd_vel();
   RCLCPP_INFO(this->get_logger(), "LOOP");
-  int32_t target_left_speed;
-  int32_t target_right_speed;
-  last_cmd_vel_.cmd_vel.angular.z = 0.0;
-  last_cmd_vel_.cmd_vel.linear.x = 0.2;
-  convert_twist_to_motor_speeds(last_cmd_vel_.cmd_vel, target_left_speed,
-                                target_right_speed);
+  // int32_t target_left_speed;
+  // int32_t target_right_speed;
+  // last_cmd_vel_.cmd_vel.angular.z = 0.0;
+  // last_cmd_vel_.cmd_vel.linear.x = 0.2;
+  // convert_twist_to_motor_speeds(last_cmd_vel_.cmd_vel, target_left_speed,
+  //                               target_right_speed);
 
-  const int32_t m1_max_distance_quad_pulses =
-      (int32_t)fabs(target_left_speed * max_seconds_uncommanded_travel_);
-  const int32_t m2_max_distance_quad_pulses =
-      (int32_t)fabs(target_right_speed * max_seconds_uncommanded_travel_);
-  CmdDoBufferedM1M2DriveSpeedAccelDistance cmd2(
-      *roboclaw_, accel_, target_left_speed, m1_max_distance_quad_pulses,
-      target_right_speed, m2_max_distance_quad_pulses);
-  cmd2.execute();
+  // const int32_t m1_max_distance_quad_pulses =
+  //     (int32_t)fabs(target_left_speed * max_seconds_uncommanded_travel_);
+  // const int32_t m2_max_distance_quad_pulses =
+  //     (int32_t)fabs(target_right_speed * max_seconds_uncommanded_travel_);
+  // CmdDoBufferedM1M2DriveSpeedAccelDistance cmd2(
+  //     *roboclaw_, accel_, target_left_speed, m1_max_distance_quad_pulses,
+  //     target_right_speed, m2_max_distance_quad_pulses);
+  // cmd2.execute();
 
   // roboclaw_->writeN2(10, address_, 37, SetDWORDval(target_left_speed),
   //                    SetDWORDval(target_right_speed));
