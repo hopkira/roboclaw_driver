@@ -34,105 +34,10 @@ RoboClawDriverNode::RoboClawDriverNode()
       motors_initialized_(false),
       encoder_init_done_(false),
       encoder_retries_(0) {
-  // Declare parameters
-  this->declare_parameter("accel", 3000);
-  this->declare_parameter("base_frame", "base_link");
-  this->declare_parameter("baud_rate", 38400);
-  this->declare_parameter("device_name", "/dev/roboclaw");
-  this->declare_parameter("device_timeout", 100);
-  this->declare_parameter("encoder_counts_per_revolution", 0);
-  this->declare_parameter("joint_states_rate", 30.0);
-  this->declare_parameter("max_m1_current", 0.0);
-  this->declare_parameter("max_m2_current", 0.0);
-  this->declare_parameter("max_seconds_uncommanded_travel", 0.05);
-  this->declare_parameter("max_angular_velocity", 0.0);
-  this->declare_parameter("max_linear_velocity", 0.0);
-  this->declare_parameter("max_retries", 3);
-  this->declare_parameter("odom_frame", "odom");
-  this->declare_parameter("odometry_rate", 67.0);
-  this->declare_parameter("status_rate", 10.0);
-  this->declare_parameter("wheel_radius", 0.0);
-  this->declare_parameter("wheel_separation", 0.0);
-  this->declare_parameter("cmd_vel_timeout", 1.0);
-  this->declare_parameter("m1_p", 7.26239);
-  this->declare_parameter("m1_i", 2.43);
-  this->declare_parameter("m1_d", 0.0);
-  this->declare_parameter("m1_qpps", 2437);
-
-  this->declare_parameter("m2_p", 7.26239);
-  this->declare_parameter("m2_i", 2.43);
-  this->declare_parameter("m2_d", 0.0);
-  this->declare_parameter("m2_qpps", 2437);
-
-  this->declare_parameter("publish_odom", true);
-  this->declare_parameter("publish_tf", true);
-  this->declare_parameter("publish_joint_states", true);
-
-  this->declare_parameter("do_debug", false);
-  this->declare_parameter("do_low_level_debug", false);
-
-  // Get parameters
-  m1_p_ = this->get_parameter("m1_p").as_double();
-  m1_i_ = this->get_parameter("m1_i").as_double();
-  m1_d_ = this->get_parameter("m1_d").as_double();
-  m1_qpps_ = this->get_parameter("m1_qpps").as_int();
-
-  m2_p_ = this->get_parameter("m2_p").as_double();
-  m2_i_ = this->get_parameter("m2_i").as_double();
-  m2_d_ = this->get_parameter("m2_d").as_double();
-  m2_qpps_ = this->get_parameter("m2_qpps").as_int();
-
-  device_name_ = this->get_parameter("device_name").as_string();
-  baud_rate_ = this->get_parameter("baud_rate").as_int();
-  device_timeout_ = this->get_parameter("device_timeout").as_int();
-  max_seconds_uncommanded_travel_ =
-      this->get_parameter("max_seconds_uncommanded_travel").as_double();
-  max_retries_ = this->get_parameter("max_retries").as_int();
-
-  odometry_rate_ = this->get_parameter("odometry_rate").as_double();
-  joint_states_rate_ = this->get_parameter("joint_states_rate").as_double();
-  status_rate_ = this->get_parameter("status_rate").as_double();
-
-  wheel_radius_ = this->get_parameter("wheel_radius").as_double();
-  wheel_separation_ = this->get_parameter("wheel_separation").as_double();
-  encoder_counts_per_revolution_ =
-      this->get_parameter("encoder_counts_per_revolution").as_int();
-
-  base_frame_ = this->get_parameter("base_frame").as_string();
-  odom_frame_ = this->get_parameter("odom_frame").as_string();
-
-  max_angular_velocity_ =
-      this->get_parameter("max_angular_velocity").as_double();
-  max_linear_velocity_ = this->get_parameter("max_linear_velocity").as_double();
-
-  max_m1_current_ = this->get_parameter("max_m1_current").as_double();
-  max_m2_current_ = this->get_parameter("max_m2_current").as_double();
-
-  // Helper to read numeric parameter as double regardless of integer/double
-  // YAML types
-  auto get_num = [this](const std::string& name, double def) {
-    rclcpp::Parameter p;
-    if (!this->get_parameter(name, p)) return def;
-    switch (p.get_type()) {
-      case rclcpp::ParameterType::PARAMETER_DOUBLE:
-        return p.as_double();
-      case rclcpp::ParameterType::PARAMETER_INTEGER:
-        return static_cast<double>(p.as_int());
-      default:
-        return def;
-    }
-  };
-
-  accel_ = this->get_parameter("accel").as_int();
-
-  cmd_vel_timeout_ = this->get_parameter("cmd_vel_timeout").as_double();
-
-  publish_odom_ = this->get_parameter("publish_odom").as_bool();
-  publish_tf_ = this->get_parameter("publish_tf").as_bool();
-  publish_joint_states_ = this->get_parameter("publish_joint_states").as_bool();
-
-  do_debug_ = this->get_parameter("do_debug").as_bool();
-  do_low_level_debug_ = this->get_parameter("do_low_level_debug").as_bool();
+  // Initialize parameters in separate functions for better organization
+  declare_parameters();
+  load_parameters();
+  log_parameters();
 
   // Log all parameters alphabetically
   RCLCPP_INFO(this->get_logger(), "=== RoboClaw Driver Parameters ===");
@@ -681,4 +586,171 @@ double RoboClawDriverNode::normalize_angle(double angle) {
   while (angle > M_PI) angle -= 2.0 * M_PI;
   while (angle < -M_PI) angle += 2.0 * M_PI;
   return angle;
+}
+
+void RoboClawDriverNode::declare_parameters() {
+  // Declare all parameters alphabetically with proper default values
+  // This ensures consistent parameter handling and avoids truncation issues
+
+  this->declare_parameter("accel", 3000);
+  this->declare_parameter("base_frame", "base_link");
+  this->declare_parameter("baud_rate", 230400);  // Match config file default
+  this->declare_parameter("cmd_vel_timeout", 1.0);
+  this->declare_parameter("device_name",
+                          "/dev/ttyAMA0");  // Match config file default
+  this->declare_parameter("device_timeout", 100);
+  this->declare_parameter("do_debug", false);
+  this->declare_parameter("do_low_level_debug", false);
+  this->declare_parameter("encoder_counts_per_revolution",
+                          1000);  // Match config file default
+  this->declare_parameter("joint_states_rate", 30.0);
+  this->declare_parameter("m1_d", 0.0);
+  this->declare_parameter("m1_i", 2.43);
+  this->declare_parameter("m1_p", 7.26239);
+  this->declare_parameter("m1_qpps", 2437);
+  this->declare_parameter("m2_d", 0.0);
+  this->declare_parameter("m2_i", 2.43);
+  this->declare_parameter("m2_p", 7.26239);
+  this->declare_parameter("m2_qpps", 2437);
+  this->declare_parameter("max_angular_velocity",
+                          0.07);  // Match config file default
+  this->declare_parameter("max_linear_velocity",
+                          0.3);  // Match config file default
+  this->declare_parameter("max_m1_current", 0.0);
+  this->declare_parameter("max_m2_current", 0.0);
+  this->declare_parameter("max_retries", 3);
+  this->declare_parameter("max_seconds_uncommanded_travel",
+                          0.2);  // Match config file default
+  this->declare_parameter("odom_frame", "odom");
+  this->declare_parameter("odometry_rate", 67.0);
+  this->declare_parameter("publish_joint_states",
+                          false);                  // Match config file default
+  this->declare_parameter("publish_odom", false);  // Match config file default
+  this->declare_parameter("publish_tf", false);    // Match config file default
+  this->declare_parameter("status_rate", 10.0);
+  this->declare_parameter("wheel_radius",
+                          0.051112072);  // Match config file default
+  this->declare_parameter("wheel_separation",
+                          0.3906);  // Match config file default
+}
+
+void RoboClawDriverNode::load_parameters() {
+  // Load all parameters using get_parameter_or for robust error handling
+  // This prevents truncation and type conversion issues
+
+  accel_ = this->get_parameter_or("accel", 3000);
+  base_frame_ = this->get_parameter_or("base_frame", std::string("base_link"));
+  baud_rate_ = this->get_parameter_or("baud_rate", 230400);
+  cmd_vel_timeout_ = this->get_parameter_or("cmd_vel_timeout", 1.0);
+  device_name_ =
+      this->get_parameter_or("device_name", std::string("/dev/ttyAMA0"));
+  device_timeout_ = this->get_parameter_or("device_timeout", 100);
+  do_debug_ = this->get_parameter_or("do_debug", false);
+  do_low_level_debug_ = this->get_parameter_or("do_low_level_debug", false);
+  encoder_counts_per_revolution_ =
+      this->get_parameter_or("encoder_counts_per_revolution", 1000);
+  joint_states_rate_ = this->get_parameter_or("joint_states_rate", 30.0);
+  m1_d_ = this->get_parameter_or("m1_d", 0.0);
+  m1_i_ = this->get_parameter_or("m1_i", 2.43);
+  m1_p_ = this->get_parameter_or("m1_p", 7.26239);
+  m1_qpps_ = this->get_parameter_or("m1_qpps", static_cast<uint32_t>(2437));
+  m2_d_ = this->get_parameter_or("m2_d", 0.0);
+  m2_i_ = this->get_parameter_or("m2_i", 2.43);
+  m2_p_ = this->get_parameter_or("m2_p", 7.26239);
+  m2_qpps_ = this->get_parameter_or("m2_qpps", static_cast<uint32_t>(2437));
+  max_angular_velocity_ = this->get_parameter_or("max_angular_velocity", 0.07);
+  max_linear_velocity_ = this->get_parameter_or("max_linear_velocity", 0.3);
+  max_m1_current_ = this->get_parameter_or("max_m1_current", 0.0);
+  max_m2_current_ = this->get_parameter_or("max_m2_current", 0.0);
+  max_retries_ = this->get_parameter_or("max_retries", 3);
+  max_seconds_uncommanded_travel_ =
+      this->get_parameter_or("max_seconds_uncommanded_travel", 0.2);
+  odom_frame_ = this->get_parameter_or("odom_frame", std::string("odom"));
+  odometry_rate_ = this->get_parameter_or("odometry_rate", 67.0);
+  publish_joint_states_ = this->get_parameter_or("publish_joint_states", false);
+  publish_odom_ = this->get_parameter_or("publish_odom", false);
+  publish_tf_ = this->get_parameter_or("publish_tf", false);
+  status_rate_ = this->get_parameter_or("status_rate", 10.0);
+  wheel_radius_ = this->get_parameter_or("wheel_radius", 0.051112072);
+  wheel_separation_ = this->get_parameter_or("wheel_separation", 0.3906);
+}
+
+void RoboClawDriverNode::log_parameters() {
+  // Log all parameters for debugging and verification
+  // This helps identify parameter loading issues and truncation problems
+
+  if (do_debug_) {
+    RCLCPP_INFO(this->get_logger(), "=== RoboClaw Driver Parameters ===");
+
+    // Communication parameters
+    RCLCPP_INFO(this->get_logger(), "Communication:");
+    RCLCPP_INFO(this->get_logger(), "  device_name: %s", device_name_.c_str());
+    RCLCPP_INFO(this->get_logger(), "  baud_rate: %d", baud_rate_);
+    RCLCPP_INFO(this->get_logger(), "  device_timeout: %d ms", device_timeout_);
+    RCLCPP_INFO(this->get_logger(), "  max_retries: %d", max_retries_);
+
+    // Physical parameters
+    RCLCPP_INFO(this->get_logger(), "Robot Physical:");
+    RCLCPP_INFO(this->get_logger(), "  wheel_radius: %.6f m", wheel_radius_);
+    RCLCPP_INFO(this->get_logger(), "  wheel_separation: %.6f m",
+                wheel_separation_);
+    RCLCPP_INFO(this->get_logger(), "  encoder_counts_per_revolution: %d",
+                encoder_counts_per_revolution_);
+    RCLCPP_INFO(this->get_logger(), "  accel: %u quad pulses/s²", accel_);
+
+    // Safety parameters
+    RCLCPP_INFO(this->get_logger(), "Safety:");
+    RCLCPP_INFO(this->get_logger(), "  max_linear_velocity: %.3f m/s",
+                max_linear_velocity_);
+    RCLCPP_INFO(this->get_logger(), "  max_angular_velocity: %.3f rad/s",
+                max_angular_velocity_);
+    RCLCPP_INFO(this->get_logger(), "  max_seconds_uncommanded_travel: %.3f s",
+                max_seconds_uncommanded_travel_);
+    RCLCPP_INFO(this->get_logger(), "  cmd_vel_timeout: %.3f s",
+                cmd_vel_timeout_);
+    RCLCPP_INFO(this->get_logger(), "  max_m1_current: %.3f A",
+                max_m1_current_);
+    RCLCPP_INFO(this->get_logger(), "  max_m2_current: %.3f A",
+                max_m2_current_);
+
+    // PID parameters (high precision logging to catch truncation)
+    RCLCPP_INFO(this->get_logger(), "Motor 1 PID:");
+    RCLCPP_INFO(this->get_logger(), "  m1_p: %.8f", m1_p_);
+    RCLCPP_INFO(this->get_logger(), "  m1_i: %.8f", m1_i_);
+    RCLCPP_INFO(this->get_logger(), "  m1_d: %.8f", m1_d_);
+    RCLCPP_INFO(this->get_logger(), "  m1_qpps: %u", m1_qpps_);
+
+    RCLCPP_INFO(this->get_logger(), "Motor 2 PID:");
+    RCLCPP_INFO(this->get_logger(), "  m2_p: %.8f", m2_p_);
+    RCLCPP_INFO(this->get_logger(), "  m2_i: %.8f", m2_i_);
+    RCLCPP_INFO(this->get_logger(), "  m2_d: %.8f", m2_d_);
+    RCLCPP_INFO(this->get_logger(), "  m2_qpps: %u", m2_qpps_);
+
+    // Publishing parameters
+    RCLCPP_INFO(this->get_logger(), "Publishing:");
+    RCLCPP_INFO(this->get_logger(), "  publish_odom: %s",
+                publish_odom_ ? "true" : "false");
+    RCLCPP_INFO(this->get_logger(), "  publish_tf: %s",
+                publish_tf_ ? "true" : "false");
+    RCLCPP_INFO(this->get_logger(), "  publish_joint_states: %s",
+                publish_joint_states_ ? "true" : "false");
+    RCLCPP_INFO(this->get_logger(), "  odometry_rate: %.1f Hz", odometry_rate_);
+    RCLCPP_INFO(this->get_logger(), "  joint_states_rate: %.1f Hz",
+                joint_states_rate_);
+    RCLCPP_INFO(this->get_logger(), "  status_rate: %.1f Hz", status_rate_);
+
+    // Frame parameters
+    RCLCPP_INFO(this->get_logger(), "Frames:");
+    RCLCPP_INFO(this->get_logger(), "  base_frame: %s", base_frame_.c_str());
+    RCLCPP_INFO(this->get_logger(), "  odom_frame: %s", odom_frame_.c_str());
+
+    // Debug parameters
+    RCLCPP_INFO(this->get_logger(), "Debug:");
+    RCLCPP_INFO(this->get_logger(), "  do_debug: %s",
+                do_debug_ ? "true" : "false");
+    RCLCPP_INFO(this->get_logger(), "  do_low_level_debug: %s",
+                do_low_level_debug_ ? "true" : "false");
+
+    RCLCPP_INFO(this->get_logger(), "=== End Parameters ===");
+  }
 }

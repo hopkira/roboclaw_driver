@@ -16,12 +16,6 @@ def generate_launch_description():
         ]),
         description='Path to the configuration file'
     )
-    
-    use_sim_time_arg = DeclareLaunchArgument(
-        'use_sim_time',
-        default_value='false',
-        description='Use simulation time'
-    )
 
     # RoboClaw driver node
     roboclaw_driver_node = Node(
@@ -29,8 +23,7 @@ def generate_launch_description():
         executable='roboclaw_driver_node',
         name='roboclaw_driver',
         parameters=[
-            LaunchConfiguration('config_file'),
-            {'use_sim_time': LaunchConfiguration('use_sim_time')}
+            LaunchConfiguration('config_file')
         ],
         output='screen',
         emulate_tty=True
@@ -38,6 +31,5 @@ def generate_launch_description():
 
     return LaunchDescription([
         config_file_arg,
-        use_sim_time_arg,
         roboclaw_driver_node
     ])

@@ -38,6 +38,11 @@ class RoboClawDriverNode : public rclcpp::Node {
   void calculate_odometry();
   bool get_fresh_encoders(uint32_t& enc1, uint32_t& enc2);
 
+  // Parameter management
+  void declare_parameters();
+  void load_parameters();
+  void log_parameters();
+
   // Utility functions
   void convert_twist_to_motor_speeds(const geometry_msgs::msg::Twist& twist,
                                      int32_t& left_speed, int32_t& right_speed);
@@ -82,8 +87,14 @@ class RoboClawDriverNode : public rclcpp::Node {
   double max_m2_current_{0.0};
 
   // PID parameters
-  uint32_t m1_p_, m1_i_, m1_d_, m1_qpps_;
-  uint32_t m2_p_, m2_i_, m2_d_, m2_qpps_;
+  double m1_p_;
+  double m1_i_;
+  double m1_d_;
+  uint32_t m1_qpps_;
+  double m2_p_;
+  double m2_i_;
+  double m2_d_;
+  uint32_t m2_qpps_;
   uint32_t accel_;
 
   // Safety settings
