@@ -9,8 +9,13 @@
 
 #include "roboclaw_driver/roboclaw_cmd_do_buffered_m1m2_drive_speed_accel_distance.h"
 #include "roboclaw_driver/roboclaw_cmd_read_buffer_length.h"
+#include "roboclaw_driver/roboclaw_cmd_read_encoder.h"
 #include "roboclaw_driver/roboclaw_cmd_read_firmware_version.h"
+#include "roboclaw_driver/roboclaw_cmd_read_logic_battery_voltage.h"
+#include "roboclaw_driver/roboclaw_cmd_read_main_battery_voltage.h"
+#include "roboclaw_driver/roboclaw_cmd_read_motor_currents.h"
 #include "roboclaw_driver/roboclaw_cmd_read_status.h"
+#include "roboclaw_driver/roboclaw_cmd_read_temperature.h"
 #include "roboclaw_driver/roboclaw_cmd_set_encoder_value.h"
 #include "roboclaw_driver/roboclaw_cmd_set_pid.h"
 
@@ -171,65 +176,16 @@ bool RoboClawDriverNode::initialize_roboclaw() {
 }
 
 void RoboClawDriverNode::main_loop() {
-  // roboclaw_->writeN2(4, address_, RoboClaw::M1DUTY, SetWORDval(24000));
-  // roboclaw_->debug_log_.showLog();
-
-  // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-  // return;
-
   auto now = this->get_clock()->now();
 
+  // RCLCPP_INFO(this->get_logger(), "LOOP");
+
   // Handle cmd_vel processing and motor commands
-  // handle_cmd_vel();
-  RCLCPP_INFO(this->get_logger(), "LOOP");
-  // int32_t target_left_speed;
-  // int32_t target_right_speed;
-  // last_cmd_vel_.cmd_vel.angular.z = 0.0;
-  // last_cmd_vel_.cmd_vel.linear.x = 0.2;
-  // convert_twist_to_motor_speeds(last_cmd_vel_.cmd_vel, target_left_speed,
-  //                               target_right_speed);
-
-  // const int32_t m1_max_distance_quad_pulses =
-  //     (int32_t)fabs(target_left_speed * max_seconds_uncommanded_travel_);
-  // const int32_t m2_max_distance_quad_pulses =
-  //     (int32_t)fabs(target_right_speed * max_seconds_uncommanded_travel_);
-  // CmdDoBufferedM1M2DriveSpeedAccelDistance cmd2(
-  //     *roboclaw_, accel_, target_left_speed, m1_max_distance_quad_pulses,
-  //     target_right_speed, m2_max_distance_quad_pulses);
-  // cmd2.execute();
-
-  // roboclaw_->writeN2(10, address_, 37, SetDWORDval(target_left_speed),
-  //                    SetDWORDval(target_right_speed));
-  // roboclaw_->debug_log_.showLog();
-
-  // uint8_t m1_buf_len = 0;
-  // uint8_t m2_buf_len = 0;
-  // CmdReadBufferLength cmd4(*roboclaw_, m1_buf_len, m2_buf_len);
-  // cmd4.execute();
-  // RCLCPP_INFO(this->get_logger(), "M1 buf len: %u, M2 buf len: %u",
-  // m1_buf_len,
-  //             m2_buf_len);
-
-  return;
-
-  // std::this_thread::sleep_for(std::chrono::milliseconds(20));  // ###
-
-  // uint32_t current_status;
-  // CmdReadStatus cmd3(*roboclaw_, current_status);
-  // cmd3.execute();
-  // RCLCPP_INFO(this->get_logger(), "Status: 0x%04X", current_status);
-
-  // roboclaw_->writeN2(23, address_, RoboClaw::MIXEDSPEEDACCELDIST,
-  //                    SetDWORDval(3000), SetDWORDval(target_left_speed),
-  //                    SetDWORDval(m1_max_distance_quad_pulses),
-  //                    SetDWORDval(target_right_speed),
-  //                    SetDWORDval(m2_max_distance_quad_pulses), 1 /* Cancel
-  //                    any previous command. */
-  // );
-  // roboclaw_->debug_log_.showLog();
+  handle_cmd_vel();
 
   // Read sensor data and update odometry
-  // read_sensors();
+  read_sensors();
+
   // calculate_odometry();
 
   // // Publishing based on time intervals
@@ -249,11 +205,11 @@ void RoboClawDriverNode::main_loop() {
   //   }
   // }
 
-  // double status_dt = (now - last_status_publish_).seconds();
-  // if (status_dt >= (1.0 / status_rate_)) {
-  //   publish_status();
-  //   last_status_publish_ = now;
-  // }
+  double status_dt = (now - last_status_publish_).seconds();
+  if (status_dt >= (1.0 / status_rate_)) {
+    publish_status();
+    last_status_publish_ = now;
+  }
 }
 
 #define SetDWORDval(arg) \
@@ -263,28 +219,25 @@ void RoboClawDriverNode::cmd_vel_callback(
     const geometry_msgs::msg::Twist::SharedPtr msg) {
   static rclcpp::Time time_of_last_cmd_vel = this->get_clock()->now();
 
-  // std::lock_guard<std::mutex> lock(last_cmd_vel_.mutex); //###
+  std::lock_guard<std::mutex> lock(last_cmd_vel_.mutex);  // ###
   last_cmd_vel_.cmd_vel = *msg;
   last_cmd_vel_.sequence_number++;
   last_cmd_vel_.timestamp = this->get_clock()->now();
+}
 
-  // std::lock_guard<std::mutex> lock(cmd_vel_mutex_);
-  // current_cmd_vel_ = *msg;
-  // cmd_vel_received_ = true;
-  // last_cmd_vel_time_ = this->get_clock()->now();
+void RoboClawDriverNode::handle_cmd_vel() {
+  static uint32_t last_sequence_number = 0;
+  static rclcpp::Time time_of_last_cmd_vel = this->get_clock()->now();
 
-  // if (do_debug_) {
-  //   double delta_time =
-  //       (last_cmd_vel_.timestamp - time_of_last_cmd_vel).seconds();
-  //   RCLCPP_INFO(this->get_logger(),
-  //               "Received cmd_vel: linear=%.3f, angular=%.3f at %f,
-  //               delta_time "
-  //               "= %f, sequence=%u",
-  //               msg->linear.x, msg->angular.z,
-  //               last_cmd_vel_.timestamp.seconds(), delta_time,
-  //               last_cmd_vel_.sequence_number);
-  //   time_of_last_cmd_vel = last_cmd_vel_.timestamp;
-  // }
+  std::lock_guard<std::mutex> lock(last_cmd_vel_.mutex);
+
+  if (last_cmd_vel_.sequence_number <= last_sequence_number) {
+    // No new command since last processed
+    return;
+  }
+
+  last_sequence_number = last_cmd_vel_.sequence_number;
+
   int32_t target_left_speed;
   int32_t target_right_speed;
   convert_twist_to_motor_speeds(last_cmd_vel_.cmd_vel, target_left_speed,
@@ -298,43 +251,15 @@ void RoboClawDriverNode::cmd_vel_callback(
       *roboclaw_, accel_, target_left_speed, m1_max_distance_quad_pulses,
       target_right_speed, m2_max_distance_quad_pulses);
   cmd.execute();
-}
-
-void RoboClawDriverNode::handle_cmd_vel() {
-  // static uint32_t last_sequence_number = 0;
-  // static rclcpp::Time time_of_last_cmd_vel = this->get_clock()->now();
-
-  // // std::lock_guard<std::mutex> lock(last_cmd_vel_.mutex); //###
-
-  // if (last_cmd_vel_.sequence_number <= last_sequence_number) {
-  //   // No new command since last processed
-  //   return;
-  // }
-
-  // last_sequence_number = last_cmd_vel_.sequence_number;
-
-  // int32_t target_left_speed;
-  // int32_t target_right_speed;
-  // convert_twist_to_motor_speeds(last_cmd_vel_.cmd_vel, target_left_speed,
-  //                               target_right_speed);
-
-  // const int32_t m1_max_distance_quad_pulses =
-  //     (int32_t)fabs(target_left_speed * max_seconds_uncommanded_travel_);
-  // const int32_t m2_max_distance_quad_pulses =
-  //     (int32_t)fabs(target_right_speed * max_seconds_uncommanded_travel_);
-  // CmdDoBufferedM1M2DriveSpeedAccelDistance cmd(
-  //     *roboclaw_, accel_, target_left_speed, m1_max_distance_quad_pulses,
-  //     target_right_speed, m2_max_distance_quad_pulses);
-  // cmd.execute();
-  // if (do_debug_) {
-  //   rclcpp::Time now = this->get_clock()->now();
-  //   double delta_time = (now - time_of_last_cmd_vel).seconds();
-  //   double lag_time = (now - last_cmd_vel_.timestamp).seconds();
-  //   time_of_last_cmd_vel = last_cmd_vel_.timestamp;
-  //   RCLCPP_INFO(this->get_logger(),
-  //               "delta_time=%.3f, lag_time=%.3f, sequence=%u", delta_time,
-  //               lag_time, last_cmd_vel_.sequence_number);
-  // }
+  if (do_debug_) {
+    rclcpp::Time now = this->get_clock()->now();
+    double delta_time = (now - time_of_last_cmd_vel).seconds();
+    double lag_time = (now - last_cmd_vel_.timestamp).seconds();
+    time_of_last_cmd_vel = last_cmd_vel_.timestamp;
+    RCLCPP_INFO(this->get_logger(),
+                "delta_time=%.3f, lag_time=%.3f, sequence=%u", delta_time,
+                lag_time, last_cmd_vel_.sequence_number);
+  }
 }
 
 void RoboClawDriverNode::convert_twist_to_motor_speeds(
@@ -361,75 +286,65 @@ void RoboClawDriverNode::convert_twist_to_motor_speeds(
   right_speed = static_cast<int32_t>(right_qpps);
 }
 
-bool RoboClawDriverNode::get_fresh_encoders(uint32_t& enc1, uint32_t& enc2) {
-  // if (!motors_initialized_) {
-  //   return false;
-  // }
+bool RoboClawDriverNode::get_fresh_encoders(RoboClaw::EncodeResult& enc1,
+                                            RoboClaw::EncodeResult& enc2) {
+  if (!motors_initialized_) {
+    return false;
+  }
 
-  // uint8_t status1, status2;
-  // bool valid1, valid2;
+  CmdReadEncoder cmd1(*roboclaw_, RoboClaw::kM1, enc1);
+  CmdReadEncoder cmd2(*roboclaw_, RoboClaw::kM2, enc2);
 
-  // enc1 = roboclaw_->ReadEncM1(address_, &status1, &valid1);
-  // enc2 = roboclaw_->ReadEncM2(address_, &status2, &valid2);
-
-  // if (!valid1 || !valid2) {
-  //   encoder_retries_++;
-  //   if (encoder_retries_ > MAX_ENCODER_RETRIES) {
-  //     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
-  //                          "Persistent encoder reading failures,
-  //                          retries=%u", encoder_retries_);
-  //     encoder_retries_ = 0;  // Reset counter
-  //   }
-  //   return false;
-  // }
-
-  // encoder_retries_ = 0;
-
+  cmd1.execute();
+  cmd2.execute();
   return true;
 }
 
 void RoboClawDriverNode::read_sensors() {
-  // // Get fresh encoder readings
-  // uint32_t enc1, enc2;
-  // if (get_fresh_encoders(enc1, enc2)) {
-  //   last_enc1_ = enc1;
-  //   last_enc2_ = enc2;
-  //   encoder_init_done_ = true;
-  // }
+  // Get fresh encoder readings
+  get_fresh_encoders(roboclaw_state_.m1_enc_result,
+                     roboclaw_state_.m2_enc_result);
 
-  // // Spread status readings across cycles to avoid overwhelming serial
-  // // communication This follows the TeensyV2 pattern of state machine for
-  // // different readings
-  // auto now = this->get_clock()->now();
-  // static auto last_status_time = now;
+  // Spread status readings across cycles to avoid overwhelming serial
+  // communication This follows the TeensyV2 pattern of state machine for
+  // different readings
+  auto now = this->get_clock()->now();
+  static auto last_status_time = now;
 
-  // if ((now - last_status_time).seconds() >= 0.1) {  // 10Hz status reading
-  //   switch (current_status_state_) {
-  //     case READ_BATTERY:
-  //       // Read battery voltage (could publish this)
-  //       break;
-  //     case READ_TEMPERATURES:
-  //       // Read temperature sensors
-  //       break;
-  //     case READ_CURRENTS:
-  //       // Read motor currents
-  //       break;
-  //     case READ_ERROR:
-  //       // Read error status
-  //       break;
-  //     case READ_PWMS:
-  //       // Read PWM values
-  //       break;
-  //     case READ_BUFFERS:
-  //       // Read command buffer depths
-  //       break;
-  //   }
+  if ((now - last_status_time).seconds() >= 0.1) {  // 10Hz status reading
+    switch (current_status_state_) {
+      case READ_BATTERY: {
+        CmdReadLogicBatteryVoltage cmd_logic_batt(
+            *roboclaw_, roboclaw_state_.logic_battery_voltage);
+        cmd_logic_batt.execute();
+        CmdReadMainBatteryVoltage cmd_main_batt(
+            *roboclaw_, roboclaw_state_.main_battery_voltage);
+        cmd_main_batt.execute();
+      }
 
-  //   // Advance to next state
-  //   current_status_state_ =
-  //       static_cast<StatusReadState>((current_status_state_ + 1) % 6);
-  //   last_status_time = now;
-  // }
+      break;
+      case READ_TEMPERATURES:
+        // Read temperature sensors
+        break;
+      case READ_CURRENTS:
+        // Read motor currents
+        break;
+      case READ_ERROR:
+        // Read error status
+        break;
+      case READ_PWMS:
+        // Read PWM values
+        break;
+      case READ_BUFFERS:
+        // Read command buffer depths
+        break;
+    }
+
+    // Advance to next state
+    current_status_state_ =
+        static_cast<StatusReadState>((current_status_state_ + 1) % 6);
+    last_status_time = now;
+  }
 }
 
 void RoboClawDriverNode::calculate_odometry() {
@@ -571,6 +486,21 @@ void RoboClawDriverNode::publish_joint_states() {
 }
 
 void RoboClawDriverNode::publish_status() {
+  // Create JSON string with RoboClaw state data
+  std::string json_status =
+      "{\"m1_enc_val\":" + std::to_string(roboclaw_state_.m1_enc_result.value) +
+      ",\"m1_enc_stat\":" +
+      std::to_string(static_cast<int>(roboclaw_state_.m1_enc_result.status)) +
+      ",\"m2_enc_val\":" + std::to_string(roboclaw_state_.m2_enc_result.value) +
+      ",\"m2_enc_stat\":" +
+      std::to_string(static_cast<int>(roboclaw_state_.m2_enc_result.status)) +
+      ",\"logic_batt\":" +
+      std::to_string(roboclaw_state_.logic_battery_voltage) +
+      ",\"main_batt\":" + std::to_string(roboclaw_state_.main_battery_voltage) +
+      "}";
+
+  RCLCPP_INFO(this->get_logger(), "RoboClaw Status: %s", json_status.c_str());
+
   // // This could publish battery voltage, temperatures, currents, errors,
   // etc.
   // // For now, we'll just log some basic status

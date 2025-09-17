@@ -36,7 +36,8 @@ class RoboClawDriverNode : public rclcpp::Node {
   void publish_joint_states();
   void publish_status();
   void calculate_odometry();
-  bool get_fresh_encoders(uint32_t& enc1, uint32_t& enc2);
+  bool get_fresh_encoders(RoboClaw::EncodeResult& enc1,
+                          RoboClaw::EncodeResult& enc2);
 
   // Parameter management
   void declare_parameters();
@@ -112,7 +113,7 @@ class RoboClawDriverNode : public rclcpp::Node {
   // State variables
   struct {
     geometry_msgs::msg::Twist cmd_vel;
-    // std::mutex mutex;
+    std::mutex mutex;
     uint32_t sequence_number{0};
     rclcpp::Time timestamp{0};
   } last_cmd_vel_;
@@ -150,6 +151,40 @@ class RoboClawDriverNode : public rclcpp::Node {
   bool encoder_init_done_;
   uint32_t encoder_retries_;
   static constexpr uint32_t MAX_ENCODER_RETRIES = 5;
+
+  struct RoboclawState {
+    RoboClaw::EncodeResult m1_enc_result;
+    RoboClaw::EncodeResult m2_enc_result;
+    // uint8_t m1_status;
+    // uint8_t m2_status;
+    bool m1_valid;
+    bool m2_valid;
+    float logic_battery_voltage{0.0};
+    float main_battery_voltage{0.0};
+    float temperature1{0.0};
+    // float m2_temperature;
+    // float m1_current;
+    // float m2_current;
+    // int16_t m1_pwm;
+    // int16_t m2_pwm;
+    // uint16_t m1_buffer;
+    // uint16_t m2_buffer;
+
+    //   RoboclawState()
+    //       : m1_status(0),
+    //         m2_status(0),
+    //         m1_valid(false),
+    //         m2_valid(false),
+    //         logicbattery_voltage(0.0),
+    //         m1_temperature(0.0),
+    //         m2_temperature(0.0),
+    //         m1_current(0.0),
+    //         m2_current(0.0),
+    //         m1_pwm(0),
+    //         m2_pwm(0),
+    //         m1_buffer(0),
+    //         m2_buffer(0) {}
+  } roboclaw_state_;
 
   // Constants
   static constexpr double MAIN_LOOP_FREQUENCY = 30.0;  // Hz
