@@ -11,6 +11,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <string>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
@@ -27,6 +28,10 @@ class RoboClawDriverNode : public rclcpp::Node {
 
   // Callback functions
   void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg);
+
+  // Error decoding
+  void decodeErrorStatus(uint32_t error_status, char* buffer,
+                         size_t size) const;
 
   // Core functionality
   bool initialize_roboclaw();
@@ -56,6 +61,7 @@ class RoboClawDriverNode : public rclcpp::Node {
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_states_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   rclcpp::TimerBase::SharedPtr main_timer_;
 
@@ -134,7 +140,7 @@ class RoboClawDriverNode : public rclcpp::Node {
     READ_TEMPERATURES,
     READ_CURRENTS,
     READ_ERROR,
-    READ_PWMS,
+    READ_SPEEDS,
     READ_BUFFERS
   };
   StatusReadState current_status_state_;
@@ -149,41 +155,23 @@ class RoboClawDriverNode : public rclcpp::Node {
 
   // Encoder management
   bool encoder_init_done_;
-  uint32_t encoder_retries_;
   static constexpr uint32_t MAX_ENCODER_RETRIES = 5;
 
   struct RoboclawState {
+    uint32_t error_status{0};
+    float logic_battery_voltage{0.0};
     RoboClaw::EncodeResult m1_enc_result;
     RoboClaw::EncodeResult m2_enc_result;
-    // uint8_t m1_status;
-    // uint8_t m2_status;
-    bool m1_valid;
-    bool m2_valid;
-    float logic_battery_voltage{0.0};
+    int32_t m1_speed{0};
+    int32_t m2_speed{0};
     float main_battery_voltage{0.0};
+    RoboClaw::TMotorCurrents motorCurrents;
     float temperature1{0.0};
-    // float m2_temperature;
-    // float m1_current;
-    // float m2_current;
+    float temperature2{0.0};
     // int16_t m1_pwm;
     // int16_t m2_pwm;
     // uint16_t m1_buffer;
     // uint16_t m2_buffer;
-
-    //   RoboclawState()
-    //       : m1_status(0),
-    //         m2_status(0),
-    //         m1_valid(false),
-    //         m2_valid(false),
-    //         logicbattery_voltage(0.0),
-    //         m1_temperature(0.0),
-    //         m2_temperature(0.0),
-    //         m1_current(0.0),
-    //         m2_current(0.0),
-    //         m1_pwm(0),
-    //         m2_pwm(0),
-    //         m1_buffer(0),
-    //         m2_buffer(0) {}
   } roboclaw_state_;
 
   // Constants

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <rcutils/logging_macros.h>
+
 #include "roboclaw_cmd.h"
 
 class CmdReadStatus : public Cmd {

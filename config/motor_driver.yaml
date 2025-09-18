@@ -53,5 +53,5 @@ roboclaw_driver:
     publish_joint_states: false            # Publish wheel joint states
 
     # Debugging control.
-    do_debug: true # True => Log RoboClaw commands and responses.
+    do_debug: false # True => Log RoboClaw commands and responses.
     do_low_level_debug: false # True => Log low-level serial and RoboClaw data.

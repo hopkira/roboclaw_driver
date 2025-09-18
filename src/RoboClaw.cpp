@@ -276,6 +276,51 @@ uint8_t RoboClaw::getByteCommandResult2(uint8_t command) {
   return 0;
 }
 
+int32_t RoboClaw::getVelocityResult(uint8_t command) {
+  uint16_t crc = 0;
+  updateCrc(crc, portAddress_);
+  updateCrc(crc, command);
+  writeByte2(portAddress_);
+  writeByte2(command);
+
+  int32_t result = 0;
+  uint8_t datum = readByteWithTimeout2();
+  result |= datum << 24;
+  updateCrc(crc, datum);
+
+  datum = readByteWithTimeout2();
+  result |= datum << 16;
+  updateCrc(crc, datum);
+
+  datum = readByteWithTimeout2();
+  result |= datum << 8;
+  updateCrc(crc, datum);
+
+  datum = readByteWithTimeout2();
+  result |= datum;
+  updateCrc(crc, datum);
+
+  uint8_t direction = readByteWithTimeout2();
+  updateCrc(crc, direction);
+  if (direction != 0) result = -result;
+
+  uint16_t responseCrc = 0;
+  datum = readByteWithTimeout2();
+  responseCrc = datum << 8;
+  datum = readByteWithTimeout2();
+  responseCrc |= datum;
+  if (responseCrc == crc) {
+    return result;
+  }
+
+  RCUTILS_LOG_ERROR(
+      "[RoboClaw::getVelocityResult] Expected CRC of: 0x%02X, but got: "
+      "0x%02X",
+      int(crc), int(responseCrc));
+  throw new TRoboClawException("[RoboClaw::getVelocityResult] INVALID CRC");
+  return 0;
+}
+
 uint8_t RoboClaw::readByteWithTimeout2() {
   struct pollfd ufd[1];
   ufd[0].fd = device_port_;

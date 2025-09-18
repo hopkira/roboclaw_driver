@@ -10,6 +10,7 @@
 #include "roboclaw_driver/roboclaw_cmd_do_buffered_m1m2_drive_speed_accel_distance.h"
 #include "roboclaw_driver/roboclaw_cmd_read_buffer_length.h"
 #include "roboclaw_driver/roboclaw_cmd_read_encoder.h"
+#include "roboclaw_driver/roboclaw_cmd_read_encoder_speed.h"
 #include "roboclaw_driver/roboclaw_cmd_read_firmware_version.h"
 #include "roboclaw_driver/roboclaw_cmd_read_logic_battery_voltage.h"
 #include "roboclaw_driver/roboclaw_cmd_read_main_battery_voltage.h"
@@ -37,57 +38,51 @@ RoboClawDriverNode::RoboClawDriverNode()
       first_encoder_reading_(true),
       current_status_state_(READ_BATTERY),
       motors_initialized_(false),
-      encoder_init_done_(false),
-      encoder_retries_(0) {
+      encoder_init_done_(false) {
   // Initialize parameters in separate functions for better organization
   declare_parameters();
   load_parameters();
   log_parameters();
 
   // Log all parameters alphabetically
-  RCLCPP_INFO(this->get_logger(), "=== RoboClaw Driver Parameters ===");
-  RCLCPP_INFO(this->get_logger(), "accel: %d", accel_);
-  RCLCPP_INFO(this->get_logger(), "base_frame: %s", base_frame_.c_str());
-  RCLCPP_INFO(this->get_logger(), "baud_rate: %d", baud_rate_);
-  RCLCPP_INFO(this->get_logger(), "cmd_vel_timeout: %.1f", cmd_vel_timeout_);
-  RCLCPP_INFO(this->get_logger(), "do_debug: %s", do_debug_ ? "true" : "false");
-  RCLCPP_INFO(this->get_logger(), "do_low_level_debug: %s",
-              do_low_level_debug_ ? "true" : "false");
-  RCLCPP_INFO(this->get_logger(), "device_name: %s", device_name_.c_str());
-  RCLCPP_INFO(this->get_logger(), "device_timeout: %d", device_timeout_);
-  RCLCPP_INFO(this->get_logger(), "encoder_counts_per_revolution: %d",
-              encoder_counts_per_revolution_);
-  RCLCPP_INFO(this->get_logger(), "joint_states_rate: %.1f",
-              joint_states_rate_);
-  RCLCPP_INFO(this->get_logger(), "m1_d: %.6f", m1_d_);
-  RCLCPP_INFO(this->get_logger(), "m1_i: %.6f", m1_i_);
-  RCLCPP_INFO(this->get_logger(), "m1_p: %.6f", m1_p_);
-  RCLCPP_INFO(this->get_logger(), "m1_qpps: %d", m1_qpps_);
-  RCLCPP_INFO(this->get_logger(), "m2_d: %.6f", m2_d_);
-  RCLCPP_INFO(this->get_logger(), "m2_i: %.6f", m2_i_);
-  RCLCPP_INFO(this->get_logger(), "m2_p: %.6f", m2_p_);
-  RCLCPP_INFO(this->get_logger(), "m2_qpps: %d", m2_qpps_);
-  RCLCPP_INFO(this->get_logger(), "max_angular_velocity: %.1f",
-              max_angular_velocity_);
-  RCLCPP_INFO(this->get_logger(), "max_linear_velocity: %.1f",
-              max_linear_velocity_);
-  RCLCPP_INFO(this->get_logger(), "max_m1_current: %.1f", max_m1_current_);
-  RCLCPP_INFO(this->get_logger(), "max_m2_current: %.1f", max_m2_current_);
-  RCLCPP_INFO(this->get_logger(), "max_retries: %d", max_retries_);
-  RCLCPP_INFO(this->get_logger(), "max_seconds_uncommanded_travel: %.3f",
-              max_seconds_uncommanded_travel_);
-  RCLCPP_INFO(this->get_logger(), "odom_frame: %s", odom_frame_.c_str());
-  RCLCPP_INFO(this->get_logger(), "odometry_rate: %.1f", odometry_rate_);
-  RCLCPP_INFO(this->get_logger(), "publish_joint_states: %s",
-              publish_joint_states_ ? "true" : "false");
-  RCLCPP_INFO(this->get_logger(), "publish_odom: %s",
-              publish_odom_ ? "true" : "false");
-  RCLCPP_INFO(this->get_logger(), "publish_tf: %s",
-              publish_tf_ ? "true" : "false");
-  RCLCPP_INFO(this->get_logger(), "status_rate: %.1f", status_rate_);
-  RCLCPP_INFO(this->get_logger(), "wheel_radius: %.3f", wheel_radius_);
-  RCLCPP_INFO(this->get_logger(), "wheel_separation: %.3f", wheel_separation_);
-  RCLCPP_INFO(this->get_logger(), "===================================");
+  RCUTILS_LOG_INFO("=== RoboClaw Driver Parameters ===");
+  RCUTILS_LOG_INFO("accel: %d", accel_);
+  RCUTILS_LOG_INFO("base_frame: %s", base_frame_.c_str());
+  RCUTILS_LOG_INFO("baud_rate: %d", baud_rate_);
+  RCUTILS_LOG_INFO("cmd_vel_timeout: %.1f", cmd_vel_timeout_);
+  RCUTILS_LOG_INFO("do_debug: %s", do_debug_ ? "true" : "false");
+  RCUTILS_LOG_INFO("do_low_level_debug: %s",
+                   do_low_level_debug_ ? "true" : "false");
+  RCUTILS_LOG_INFO("device_name: %s", device_name_.c_str());
+  RCUTILS_LOG_INFO("device_timeout: %d", device_timeout_);
+  RCUTILS_LOG_INFO("encoder_counts_per_revolution: %d",
+                   encoder_counts_per_revolution_);
+  RCUTILS_LOG_INFO("joint_states_rate: %.1f", joint_states_rate_);
+  RCUTILS_LOG_INFO("m1_d: %.6f", m1_d_);
+  RCUTILS_LOG_INFO("m1_i: %.6f", m1_i_);
+  RCUTILS_LOG_INFO("m1_p: %.6f", m1_p_);
+  RCUTILS_LOG_INFO("m1_qpps: %d", m1_qpps_);
+  RCUTILS_LOG_INFO("m2_d: %.6f", m2_d_);
+  RCUTILS_LOG_INFO("m2_i: %.6f", m2_i_);
+  RCUTILS_LOG_INFO("m2_p: %.6f", m2_p_);
+  RCUTILS_LOG_INFO("m2_qpps: %d", m2_qpps_);
+  RCUTILS_LOG_INFO("max_angular_velocity: %.1f", max_angular_velocity_);
+  RCUTILS_LOG_INFO("max_linear_velocity: %.1f", max_linear_velocity_);
+  RCUTILS_LOG_INFO("max_m1_current: %.1f", max_m1_current_);
+  RCUTILS_LOG_INFO("max_m2_current: %.1f", max_m2_current_);
+  RCUTILS_LOG_INFO("max_retries: %d", max_retries_);
+  RCUTILS_LOG_INFO("max_seconds_uncommanded_travel: %.3f",
+                   max_seconds_uncommanded_travel_);
+  RCUTILS_LOG_INFO("odom_frame: %s", odom_frame_.c_str());
+  RCUTILS_LOG_INFO("odometry_rate: %.1f", odometry_rate_);
+  RCUTILS_LOG_INFO("publish_joint_states: %s",
+                   publish_joint_states_ ? "true" : "false");
+  RCUTILS_LOG_INFO("publish_odom: %s", publish_odom_ ? "true" : "false");
+  RCUTILS_LOG_INFO("publish_tf: %s", publish_tf_ ? "true" : "false");
+  RCUTILS_LOG_INFO("status_rate: %.1f", status_rate_);
+  RCUTILS_LOG_INFO("wheel_radius: %.3f", wheel_radius_);
+  RCUTILS_LOG_INFO("wheel_separation: %.3f", wheel_separation_);
+  RCUTILS_LOG_INFO("===================================");
 
   // Initialize RoboClaw
   roboclaw_ = std::make_unique<RoboClaw>(max_m1_current_, max_m2_current_,
@@ -95,7 +90,7 @@ RoboClawDriverNode::RoboClawDriverNode()
                                          do_debug_, do_low_level_debug_);
 
   if (!initialize_roboclaw()) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to initialize RoboClaw driver");
+    RCUTILS_LOG_ERROR("Failed to initialize RoboClaw driver");
     return;
   }
 
@@ -114,9 +109,9 @@ RoboClawDriverNode::RoboClawDriverNode()
       tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     }
   } else if (publish_tf_) {
-    RCLCPP_WARN(this->get_logger(),
-                "publish_tf is enabled but publish_odom is disabled. TF "
-                "requires odometry. Disabling TF publishing.");
+    RCUTILS_LOG_WARN(
+        "publish_tf is enabled but publish_odom is disabled. TF "
+        "requires odometry. Disabling TF publishing.");
     publish_tf_ = false;
   }
 
@@ -124,6 +119,9 @@ RoboClawDriverNode::RoboClawDriverNode()
     joint_states_pub_ = this->create_publisher<sensor_msgs::msg::JointState>(
         "joint_states", 10);
   }
+
+  status_pub_ =
+      this->create_publisher<std_msgs::msg::String>("roboclaw_status", 10);
 
   // Initialize timing
   auto now = this->get_clock()->now();
@@ -138,8 +136,7 @@ RoboClawDriverNode::RoboClawDriverNode()
       std::chrono::duration_cast<std::chrono::nanoseconds>(timer_period),
       std::bind(&RoboClawDriverNode::main_loop, this));
 
-  RCLCPP_INFO(this->get_logger(),
-              "RoboClaw driver node initialized successfully");
+  RCUTILS_LOG_INFO("RoboClaw driver node initialized successfully");
 }
 
 RoboClawDriverNode::~RoboClawDriverNode() {
@@ -150,14 +147,13 @@ RoboClawDriverNode::~RoboClawDriverNode() {
 }
 
 bool RoboClawDriverNode::initialize_roboclaw() {
-  RCLCPP_INFO(this->get_logger(), "Connected to RoboClaw on %s at %d baud",
-              device_name_.c_str(), baud_rate_);
+  RCUTILS_LOG_INFO("Connected to RoboClaw on %s at %d baud",
+                   device_name_.c_str(), baud_rate_);
   std::string version;
   CmdReadFirmwareVersion cmd(*roboclaw_, version);
   cmd.execute();
 
-  RCLCPP_INFO(this->get_logger(), "RoboClaw Firmware Version: %s",
-              version.c_str());
+  RCUTILS_LOG_INFO("RoboClaw Firmware Version: %s", version.c_str());
 
   CmdSetPid command_m1_pid(*roboclaw_, RoboClaw::kM1, m1_p_, m1_i_, m1_d_,
                            m1_qpps_);
@@ -178,7 +174,7 @@ bool RoboClawDriverNode::initialize_roboclaw() {
 void RoboClawDriverNode::main_loop() {
   auto now = this->get_clock()->now();
 
-  // RCLCPP_INFO(this->get_logger(), "LOOP");
+  // RCUTILS_LOG_INFO( "LOOP");
 
   // Handle cmd_vel processing and motor commands
   handle_cmd_vel();
@@ -256,9 +252,8 @@ void RoboClawDriverNode::handle_cmd_vel() {
     double delta_time = (now - time_of_last_cmd_vel).seconds();
     double lag_time = (now - last_cmd_vel_.timestamp).seconds();
     time_of_last_cmd_vel = last_cmd_vel_.timestamp;
-    RCLCPP_INFO(this->get_logger(),
-                "delta_time=%.3f, lag_time=%.3f, sequence=%u", delta_time,
-                lag_time, last_cmd_vel_.sequence_number);
+    RCUTILS_LOG_INFO("delta_time=%.3f, lag_time=%.3f, sequence=%u", delta_time,
+                     lag_time, last_cmd_vel_.sequence_number);
   }
 }
 
@@ -323,18 +318,46 @@ void RoboClawDriverNode::read_sensors() {
       }
 
       break;
-      case READ_TEMPERATURES:
+
+      case READ_TEMPERATURES: {
         // Read temperature sensors
-        break;
+        CmdReadTemperature cmd_temp1(*roboclaw_, RoboClaw::kTemperature1,
+                                     roboclaw_state_.temperature1);
+        cmd_temp1.execute();
+        CmdReadTemperature cmd_temp2(*roboclaw_, RoboClaw::kTemperature2,
+                                     roboclaw_state_.temperature2);
+        cmd_temp2.execute();
+      }
+
+      break;
+
       case READ_CURRENTS:
         // Read motor currents
+        {
+          CmdReadMotorCurrents cmd_currents(*roboclaw_,
+                                            roboclaw_state_.motorCurrents);
+          cmd_currents.execute();
+        }
         break;
-      case READ_ERROR:
-        // Read error status
-        break;
-      case READ_PWMS:
-        // Read PWM values
-        break;
+
+      case READ_ERROR: {
+        CmdReadStatus cmd_status(*roboclaw_, roboclaw_state_.error_status);
+        cmd_status.execute();
+      }
+
+      break;
+
+      case READ_SPEEDS: {
+        CmdReadEncoderSpeed cmd_speed_m1(*roboclaw_, RoboClaw::kM1,
+                                         roboclaw_state_.m1_speed);
+        cmd_speed_m1.execute();
+        CmdReadEncoderSpeed cmd_speed_m2(*roboclaw_, RoboClaw::kM2,
+                                         roboclaw_state_.m2_speed);
+        cmd_speed_m2.execute();
+      }
+
+      break;
+
       case READ_BUFFERS:
         // Read command buffer depths
         break;
@@ -486,30 +509,52 @@ void RoboClawDriverNode::publish_joint_states() {
 }
 
 void RoboClawDriverNode::publish_status() {
+  char decoded_error_status[256];
+  decodeErrorStatus(roboclaw_state_.error_status, decoded_error_status,
+                    sizeof(decoded_error_status));
+
   // Create JSON string with RoboClaw state data
+  std::ostringstream error_status_hex;
+  error_status_hex << std::setw(8) << std::setfill('0') << std::hex
+                   << std::uppercase << roboclaw_state_.error_status;
+
+  // Get current ROS2 time as seconds.nanoseconds (like header.stamp)
+  auto stamp = this->get_clock()->now();
+
+  // Format timestamp as "seconds.nanoseconds" (e.g., "1758159135.361360569")
+  std::ostringstream timestamp_stream;
+  timestamp_stream << std::fixed << std::setprecision(9)
+                   << stamp.seconds() +
+                          (stamp.nanoseconds() % 1000000000) / 1e9;
+
   std::string json_status =
-      "{\"m1_enc_val\":" + std::to_string(roboclaw_state_.m1_enc_result.value) +
-      ",\"m1_enc_stat\":" +
+      "{\"timestamp\":\"" + timestamp_stream.str() + "\",\"m1_current\":" +
+      std::to_string(roboclaw_state_.motorCurrents.m1Current) +
+      ",\"m2_current\":" +
+      std::to_string(roboclaw_state_.motorCurrents.m2Current) +
+      ",\"m1_speed\":" + std::to_string(roboclaw_state_.m1_speed) +
+      ",\"m1_enc_value\":" +
+      std::to_string(roboclaw_state_.m1_enc_result.value) +
+      ",\"m1_enc_status\":" +
       std::to_string(static_cast<int>(roboclaw_state_.m1_enc_result.status)) +
-      ",\"m2_enc_val\":" + std::to_string(roboclaw_state_.m2_enc_result.value) +
-      ",\"m2_enc_stat\":" +
+      ",\"m2_speed\":" + std::to_string(roboclaw_state_.m2_speed) +
+      ",\"m2_enc_value\":" +
+      std::to_string(roboclaw_state_.m2_enc_result.value) +
+      ",\"m2_enc_status\":" +
       std::to_string(static_cast<int>(roboclaw_state_.m2_enc_result.status)) +
-      ",\"logic_batt\":" +
+      ",\"logic_battery\":" +
       std::to_string(roboclaw_state_.logic_battery_voltage) +
-      ",\"main_batt\":" + std::to_string(roboclaw_state_.main_battery_voltage) +
-      "}";
+      ",\"main_battery\":" +
+      std::to_string(roboclaw_state_.main_battery_voltage) +
+      ", \"temperature1\":" + std::to_string(roboclaw_state_.temperature1) +
+      ", \"temperature2\":" + std::to_string(roboclaw_state_.temperature2) +
+      ", \"error_status\":\"" + error_status_hex.str() + "\"" +
+      ", \"decoded_error_status\":\"" + std::string(decoded_error_status) +
+      "\"}";
 
-  RCLCPP_INFO(this->get_logger(), "RoboClaw Status: %s", json_status.c_str());
-
-  // // This could publish battery voltage, temperatures, currents, errors,
-  // etc.
-  // // For now, we'll just log some basic status
-  // if (do_debug_) {
-  //   RCLCPP_DEBUG(this->get_logger(), "Status: connected=%s,
-  //   encoders_valid=%s",
-  //                motors_initialized_ ? "true" : "false",
-  //                encoder_init_done_ ? "true" : "false");
-  // }
+  // RCUTILS_LOG_INFO( "RoboClaw Status: %s",
+  // json_status.c_str());
+  status_pub_->publish(std_msgs::msg::String().set__data(json_status));
 }
 
 double RoboClawDriverNode::normalize_angle(double angle) {
@@ -610,77 +655,177 @@ void RoboClawDriverNode::log_parameters() {
   // This helps identify parameter loading issues and truncation problems
 
   if (do_debug_) {
-    RCLCPP_INFO(this->get_logger(), "=== RoboClaw Driver Parameters ===");
+    RCUTILS_LOG_INFO("=== RoboClaw Driver Parameters ===");
 
     // Communication parameters
-    RCLCPP_INFO(this->get_logger(), "Communication:");
-    RCLCPP_INFO(this->get_logger(), "  device_name: %s", device_name_.c_str());
-    RCLCPP_INFO(this->get_logger(), "  baud_rate: %d", baud_rate_);
-    RCLCPP_INFO(this->get_logger(), "  device_timeout: %d ms", device_timeout_);
-    RCLCPP_INFO(this->get_logger(), "  max_retries: %d", max_retries_);
+    RCUTILS_LOG_INFO("Communication:");
+    RCUTILS_LOG_INFO("  device_name: %s", device_name_.c_str());
+    RCUTILS_LOG_INFO("  baud_rate: %d", baud_rate_);
+    RCUTILS_LOG_INFO("  device_timeout: %d ms", device_timeout_);
+    RCUTILS_LOG_INFO("  max_retries: %d", max_retries_);
 
     // Physical parameters
-    RCLCPP_INFO(this->get_logger(), "Robot Physical:");
-    RCLCPP_INFO(this->get_logger(), "  wheel_radius: %.6f m", wheel_radius_);
-    RCLCPP_INFO(this->get_logger(), "  wheel_separation: %.6f m",
-                wheel_separation_);
-    RCLCPP_INFO(this->get_logger(), "  encoder_counts_per_revolution: %d",
-                encoder_counts_per_revolution_);
-    RCLCPP_INFO(this->get_logger(), "  accel: %u quad pulses/s²", accel_);
+    RCUTILS_LOG_INFO("Robot Physical:");
+    RCUTILS_LOG_INFO("  wheel_radius: %.6f m", wheel_radius_);
+    RCUTILS_LOG_INFO("  wheel_separation: %.6f m", wheel_separation_);
+    RCUTILS_LOG_INFO("  encoder_counts_per_revolution: %d",
+                     encoder_counts_per_revolution_);
+    RCUTILS_LOG_INFO("  accel: %u quad pulses/s²", accel_);
 
     // Safety parameters
-    RCLCPP_INFO(this->get_logger(), "Safety:");
-    RCLCPP_INFO(this->get_logger(), "  max_linear_velocity: %.3f m/s",
-                max_linear_velocity_);
-    RCLCPP_INFO(this->get_logger(), "  max_angular_velocity: %.3f rad/s",
-                max_angular_velocity_);
-    RCLCPP_INFO(this->get_logger(), "  max_seconds_uncommanded_travel: %.3f s",
-                max_seconds_uncommanded_travel_);
-    RCLCPP_INFO(this->get_logger(), "  cmd_vel_timeout: %.3f s",
-                cmd_vel_timeout_);
-    RCLCPP_INFO(this->get_logger(), "  max_m1_current: %.3f A",
-                max_m1_current_);
-    RCLCPP_INFO(this->get_logger(), "  max_m2_current: %.3f A",
-                max_m2_current_);
+    RCUTILS_LOG_INFO("Safety:");
+    RCUTILS_LOG_INFO("  max_linear_velocity: %.3f m/s", max_linear_velocity_);
+    RCUTILS_LOG_INFO("  max_angular_velocity: %.3f rad/s",
+                     max_angular_velocity_);
+    RCUTILS_LOG_INFO("  max_seconds_uncommanded_travel: %.3f s",
+                     max_seconds_uncommanded_travel_);
+    RCUTILS_LOG_INFO("  cmd_vel_timeout: %.3f s", cmd_vel_timeout_);
+    RCUTILS_LOG_INFO("  max_m1_current: %.3f A", max_m1_current_);
+    RCUTILS_LOG_INFO("  max_m2_current: %.3f A", max_m2_current_);
 
     // PID parameters (high precision logging to catch truncation)
-    RCLCPP_INFO(this->get_logger(), "Motor 1 PID:");
-    RCLCPP_INFO(this->get_logger(), "  m1_p: %.8f", m1_p_);
-    RCLCPP_INFO(this->get_logger(), "  m1_i: %.8f", m1_i_);
-    RCLCPP_INFO(this->get_logger(), "  m1_d: %.8f", m1_d_);
-    RCLCPP_INFO(this->get_logger(), "  m1_qpps: %u", m1_qpps_);
+    RCUTILS_LOG_INFO("Motor 1 PID:");
+    RCUTILS_LOG_INFO("  m1_p: %.8f", m1_p_);
+    RCUTILS_LOG_INFO("  m1_i: %.8f", m1_i_);
+    RCUTILS_LOG_INFO("  m1_d: %.8f", m1_d_);
+    RCUTILS_LOG_INFO("  m1_qpps: %u", m1_qpps_);
 
-    RCLCPP_INFO(this->get_logger(), "Motor 2 PID:");
-    RCLCPP_INFO(this->get_logger(), "  m2_p: %.8f", m2_p_);
-    RCLCPP_INFO(this->get_logger(), "  m2_i: %.8f", m2_i_);
-    RCLCPP_INFO(this->get_logger(), "  m2_d: %.8f", m2_d_);
-    RCLCPP_INFO(this->get_logger(), "  m2_qpps: %u", m2_qpps_);
+    RCUTILS_LOG_INFO("Motor 2 PID:");
+    RCUTILS_LOG_INFO("  m2_p: %.8f", m2_p_);
+    RCUTILS_LOG_INFO("  m2_i: %.8f", m2_i_);
+    RCUTILS_LOG_INFO("  m2_d: %.8f", m2_d_);
+    RCUTILS_LOG_INFO("  m2_qpps: %u", m2_qpps_);
 
     // Publishing parameters
-    RCLCPP_INFO(this->get_logger(), "Publishing:");
-    RCLCPP_INFO(this->get_logger(), "  publish_odom: %s",
-                publish_odom_ ? "true" : "false");
-    RCLCPP_INFO(this->get_logger(), "  publish_tf: %s",
-                publish_tf_ ? "true" : "false");
-    RCLCPP_INFO(this->get_logger(), "  publish_joint_states: %s",
-                publish_joint_states_ ? "true" : "false");
-    RCLCPP_INFO(this->get_logger(), "  odometry_rate: %.1f Hz", odometry_rate_);
-    RCLCPP_INFO(this->get_logger(), "  joint_states_rate: %.1f Hz",
-                joint_states_rate_);
-    RCLCPP_INFO(this->get_logger(), "  status_rate: %.1f Hz", status_rate_);
+    RCUTILS_LOG_INFO("Publishing:");
+    RCUTILS_LOG_INFO("  publish_odom: %s", publish_odom_ ? "true" : "false");
+    RCUTILS_LOG_INFO("  publish_tf: %s", publish_tf_ ? "true" : "false");
+    RCUTILS_LOG_INFO("  publish_joint_states: %s",
+                     publish_joint_states_ ? "true" : "false");
+    RCUTILS_LOG_INFO("  odometry_rate: %.1f Hz", odometry_rate_);
+    RCUTILS_LOG_INFO("  joint_states_rate: %.1f Hz", joint_states_rate_);
+    RCUTILS_LOG_INFO("  status_rate: %.1f Hz", status_rate_);
 
     // Frame parameters
-    RCLCPP_INFO(this->get_logger(), "Frames:");
-    RCLCPP_INFO(this->get_logger(), "  base_frame: %s", base_frame_.c_str());
-    RCLCPP_INFO(this->get_logger(), "  odom_frame: %s", odom_frame_.c_str());
+    RCUTILS_LOG_INFO("Frames:");
+    RCUTILS_LOG_INFO("  base_frame: %s", base_frame_.c_str());
+    RCUTILS_LOG_INFO("  odom_frame: %s", odom_frame_.c_str());
 
     // Debug parameters
-    RCLCPP_INFO(this->get_logger(), "Debug:");
-    RCLCPP_INFO(this->get_logger(), "  do_debug: %s",
-                do_debug_ ? "true" : "false");
-    RCLCPP_INFO(this->get_logger(), "  do_low_level_debug: %s",
-                do_low_level_debug_ ? "true" : "false");
+    RCUTILS_LOG_INFO("Debug:");
+    RCUTILS_LOG_INFO("  do_debug: %s", do_debug_ ? "true" : "false");
+    RCUTILS_LOG_INFO("  do_low_level_debug: %s",
+                     do_low_level_debug_ ? "true" : "false");
 
-    RCLCPP_INFO(this->get_logger(), "=== End Parameters ===");
+    RCUTILS_LOG_INFO("=== End Parameters ===");
+  }
+}
+
+void RoboClawDriverNode::decodeErrorStatus(uint32_t error_status, char* buffer,
+                                           size_t size) const {
+  if (error_status == 0) {
+    strncpy(buffer, "No errors", size);
+    buffer[size - 1] = '\0';
+    return;
+  }
+
+  buffer[0] = '\0';
+  size_t current_len = 0;
+  bool first = true;
+
+  auto append_error = [&](const char* error_str) {
+    if (current_len >= size - 1) return;
+    size_t needed = strlen(error_str) + (first ? 0 : 2);
+    if (current_len + needed < size) {
+      if (!first) {
+        strcat(buffer, ", ");
+        current_len += 2;
+      }
+      strcat(buffer, error_str);
+      current_len += strlen(error_str);
+      first = false;
+    }
+  };
+
+  // Check error flags (bits 0-15)
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_ESTOP))
+    append_error("ERROR_ESTOP");
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_TEMP))
+    append_error("ERROR_TEMP");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_TEMP2))
+    append_error("ERROR_TEMP2");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_LBATHIGH))
+    append_error("ERROR_LBATHIGH");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_LBATLOW))
+    append_error("ERROR_LBATLOW");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_FAULTM1))
+    append_error("ERROR_FAULTM1");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_FAULTM2))
+    append_error("ERROR_FAULTM2");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_SPEED1))
+    append_error("ERROR_SPEED1");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_SPEED2))
+    append_error("ERROR_SPEED2");
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_POS1))
+    append_error("ERROR_POS1");
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_POS2))
+    append_error("ERROR_POS2");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_CURRENTM1))
+    append_error("ERROR_CURRENTM1");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_CURRENTM2))
+    append_error("ERROR_CURRENTM2");
+
+  // Check warning flags (bits 16-31)
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_OVERCURRENTM1))
+    append_error("WARN_OVERCURRENTM1");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_OVERCURRENTM2))
+    append_error("WARN_OVERCURRENTM2");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_MBATHIGH))
+    append_error("WARN_MBATHIGH");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_MBATLOW))
+    append_error("WARN_MBATLOW");
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_TEMP))
+    append_error("WARN_TEMP");
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_TEMP2))
+    append_error("WARN_TEMP2");
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_S4))
+    append_error("WARN_S4");
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_S5))
+    append_error("WARN_S5");
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_CAN))
+    append_error("WARN_CAN");
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_BOOT))
+    append_error("WARN_BOOT");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_OVERREGENM1))
+    append_error("WARN_OVERREGENM1");
+  if (error_status &
+      static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_OVERREGENM2))
+    append_error("WARN_OVERREGENM2");
+
+  // Report any unknown bits
+  uint32_t known_errors = 0xF000EFFF;  // All defined error and warning bits
+  uint32_t unknown_errors = error_status & ~known_errors;
+  if (unknown_errors != 0) {
+    if (current_len < size - 1 && !first) {
+      strcat(buffer, ", ");
+      current_len += 2;
+    }
+    snprintf(buffer + current_len, size - current_len, "UNKNOWN:0x%X",
+             (unsigned int)unknown_errors);
   }
 }

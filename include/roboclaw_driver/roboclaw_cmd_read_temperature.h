@@ -4,17 +4,23 @@
 
 class CmdReadTemperature : public Cmd {
  public:
-  CmdReadTemperature(RoboClaw &roboclaw, float &temperature)
+  CmdReadTemperature(RoboClaw &roboclaw, RoboClaw::TTemperature which,
+                     float &temperature)
       : Cmd(roboclaw, "ReadTemperature", RoboClaw::kNone),
-        temperature_(temperature) {}
+        temperature_(temperature),
+        which_(which) {}
   void send() override {
     try {
       roboclaw_.appendToWriteLog("ReadTemperature: WROTE: ");
       uint16_t crc = 0;
       roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
-      roboclaw_.updateCrc(crc, RoboClaw::GETTEMP);
+      roboclaw_.updateCrc(crc, which_ == RoboClaw::kTemperature1
+                                   ? RoboClaw::GETTEMP
+                                   : RoboClaw::GETTEMP2);
       roboclaw_.writeByte2(roboclaw_.portAddress_);
-      roboclaw_.writeByte2(RoboClaw::GETTEMP);
+      roboclaw_.writeByte2(which_ == RoboClaw::kTemperature1
+                               ? RoboClaw::GETTEMP
+                               : RoboClaw::GETTEMP2);
       uint16_t result = 0;
       uint8_t datum = roboclaw_.readByteWithTimeout2();
       roboclaw_.updateCrc(crc, datum);
@@ -47,4 +53,5 @@ class CmdReadTemperature : public Cmd {
 
  private:
   float &temperature_;
+  RoboClaw::TTemperature which_;
 };
