@@ -25,6 +25,8 @@ def generate_launch_description():
         parameters=[
             LaunchConfiguration('config_file')
         ],
+        #remappings=[('/odom', '/sigyn/wheel_odom')
+        #],
         output='screen',
         emulate_tty=True
     )

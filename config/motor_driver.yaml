@@ -97,7 +97,7 @@ roboclaw_driver:
     # ============================================================================
     # PUBLISHING CONTROL - Enable/disable specific data publishing
     # ============================================================================
-    publish_odom: false                   # Publish odometry messages (/odom topic)
+    publish_odom: true                   # Publish odometry messages (/odom topic)
                                           # Set to true for navigation, SLAM, or position tracking
                                           # Required for publish_tf to work
                                           
