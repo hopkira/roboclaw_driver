@@ -1,28 +1,27 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 WimbleRobotics
+// https://github.com/wimblerobotics/Sigyn
+
 #pragma once
 
 #include "roboclaw_cmd.h"
 
 class CmdReadMotorCurrents : public Cmd {
  public:
-  CmdReadMotorCurrents(RoboClaw &roboclaw,
-                       RoboClaw::TMotorCurrents &motorCurrents)
-      : Cmd(roboclaw, "ReadMotorCurrents", RoboClaw::kNone),
-        motorCurrents_(motorCurrents) {}
+  CmdReadMotorCurrents(RoboClaw &roboclaw, RoboClaw::TMotorCurrents &motorCurrents)
+      : Cmd(roboclaw, "ReadMotorCurrents", RoboClaw::kNone), motorCurrents_(motorCurrents) {}
   void send() override {
     try {
       roboclaw_.appendToWriteLog("ReadMotorCurrents: WROTE: ");
 
-      unsigned long currentPair =
-          roboclaw_.getUlongCommandResult2(RoboClaw::GETCURRENTS);
+      unsigned long currentPair = roboclaw_.getUlongCommandResult2(RoboClaw::GETCURRENTS);
       motorCurrents_.m1Current = ((int16_t)(currentPair >> 16)) * 0.010;
       motorCurrents_.m2Current = ((int16_t)(currentPair & 0xFFFF)) * 0.010;
       roboclaw_.appendToReadLog(", RESULT m1 current: %3.4f, m2 current: %3.4f",
-                                motorCurrents_.m1Current,
-                                motorCurrents_.m2Current);
+                                motorCurrents_.m1Current, motorCurrents_.m2Current);
 
       // Only enforce current limits if configured (> 0)
-      if (roboclaw_.maxM1Current_ > 0.0 &&
-          motorCurrents_.m1Current > roboclaw_.maxM1Current_) {
+      if (roboclaw_.maxM1Current_ > 0.0 && motorCurrents_.m1Current > roboclaw_.maxM1Current_) {
         roboclaw_.motorAlarms_ |= RoboClaw::kM1_OVER_CURRENT_ALARM;
         RCUTILS_LOG_ERROR(
             "[RoboClaw::CmdReadMotorCurrents] Motor 1 over current. Max "
@@ -33,8 +32,7 @@ class CmdReadMotorCurrents : public Cmd {
         roboclaw_.motorAlarms_ &= ~RoboClaw::kM1_OVER_CURRENT_ALARM;
       }
 
-      if (roboclaw_.maxM2Current_ > 0.0 &&
-          motorCurrents_.m2Current > roboclaw_.maxM2Current_) {
+      if (roboclaw_.maxM2Current_ > 0.0 && motorCurrents_.m2Current > roboclaw_.maxM2Current_) {
         roboclaw_.motorAlarms_ |= RoboClaw::kM2_OVER_CURRENT_ALARM;
         RCUTILS_LOG_ERROR(
             "[RoboClaw::CmdReadMotorCurrents] Motor 2 over current. Max "
@@ -45,8 +43,7 @@ class CmdReadMotorCurrents : public Cmd {
         roboclaw_.motorAlarms_ &= ~RoboClaw::kM2_OVER_CURRENT_ALARM;
       }
     } catch (...) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::CmdReadMotorCurrents] Uncaught exception !!!");
+      RCUTILS_LOG_ERROR("[RoboClaw::CmdReadMotorCurrents] Uncaught exception !!!");
     }
   }
 

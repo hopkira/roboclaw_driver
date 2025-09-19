@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 WimbleRobotics
+// https://github.com/wimblerobotics/Sigyn
+
 #pragma once
 
 #include "roboclaw_cmd.h"
@@ -5,8 +9,7 @@
 class CmdReadFirmwareVersion : public Cmd {
  public:
   CmdReadFirmwareVersion(RoboClaw &roboclaw, std::string &version)
-      : Cmd(roboclaw, "ReadFirmwareVersion", RoboClaw::kNone),
-        version_(version) {}
+      : Cmd(roboclaw, "ReadFirmwareVersion", RoboClaw::kNone), version_(version) {}
 
   void send() override {
     roboclaw_.appendToWriteLog("ReadFirmwareVersion: WROTE: ");
@@ -50,16 +53,12 @@ class CmdReadFirmwareVersion : public Cmd {
         }
       }
 
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::CmdReadFirmwareVersion] unexpected long string");
-      throw new RoboClaw::TRoboClawException(
-          "[RoboClaw::getVersion] unexpected long string");
+      RCUTILS_LOG_ERROR("[RoboClaw::CmdReadFirmwareVersion] unexpected long string");
+      throw new RoboClaw::TRoboClawException("[RoboClaw::getVersion] unexpected long string");
     } catch (...) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::CmdReadFirmwareVersion] Uncaught exception !!!");
+      RCUTILS_LOG_ERROR("[RoboClaw::CmdReadFirmwareVersion] Uncaught exception !!!");
     }
-    RCUTILS_LOG_ERROR(
-        "[RoboClaw::CmdReadFirmwareVersion] RETRY COUNT EXCEEDED");
+    RCUTILS_LOG_ERROR("[RoboClaw::CmdReadFirmwareVersion] RETRY COUNT EXCEEDED");
   }
 
  private:

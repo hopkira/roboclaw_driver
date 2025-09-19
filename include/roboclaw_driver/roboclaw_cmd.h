@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 WimbleRobotics
+// https://github.com/wimblerobotics/Sigyn
+
 #pragma once
 
 #include "RoboClaw.h"
@@ -12,9 +16,8 @@ class Cmd {
         return;
       } catch (RoboClaw::TRoboClawException *e) {
         roboclaw_.debug_log_.showLog();
-        RCUTILS_LOG_ERROR(
-            "[RoboClaw::Cmd::execute] Exception: %s, retry number: %d",
-            e->what(), retry);
+        RCUTILS_LOG_ERROR("[RoboClaw::Cmd::execute] Exception: %s, retry number: %d", e->what(),
+                          retry);
       } catch (...) {
         roboclaw_.debug_log_.showLog();
         RCUTILS_LOG_ERROR("[RoboClaw::Cmd::execute] Uncaught exception !!!");
@@ -23,8 +26,7 @@ class Cmd {
 
     roboclaw_.debug_log_.showLog();
     RCUTILS_LOG_ERROR("[RoboClaw::Cmd::execute] RETRY COUNT EXCEEDED");
-    throw new RoboClaw::TRoboClawException(
-        "[RoboClaw::Cmd::execute] RETRY COUNT EXCEEDED");
+    throw new RoboClaw::TRoboClawException("[RoboClaw::Cmd::execute] RETRY COUNT EXCEEDED");
   }
 
   virtual void send() = 0;  // Declare send as a pure virtual function

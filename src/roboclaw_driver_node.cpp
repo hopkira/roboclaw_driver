@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 WimbleRobotics
+// https://github.com/wimblerobotics/Sigyn
+
 #include "roboclaw_driver/roboclaw_driver_node.hpp"
 
 #include <rcutils/logging_macros.h>

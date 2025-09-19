@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 WimbleRobotics
+// https://github.com/wimblerobotics/Sigyn
+
 #pragma once
 
 #include <rcutils/logging_macros.h>

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2024 Wimblerobotics
+// Copyright 2025 WimbleRobotics
 // https://github.com/wimblerobotics/Sigyn
 
 #pragma once
