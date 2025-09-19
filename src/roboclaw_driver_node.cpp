@@ -7,6 +7,7 @@
 #include <rcl_interfaces/msg/parameter_descriptor.hpp>
 #include <sstream>
 
+#include "nav_msgs/msg/odometry.hpp"
 #include "roboclaw_driver/roboclaw_cmd_do_buffered_m1m2_drive_speed_accel_distance.h"
 #include "roboclaw_driver/roboclaw_cmd_read_buffer_length.h"
 #include "roboclaw_driver/roboclaw_cmd_read_encoder.h"
@@ -428,54 +429,54 @@ void RoboClawDriverNode::calculate_odometry() {
 }
 
 void RoboClawDriverNode::publish_odometry() {
-  // auto odom_msg = nav_msgs::msg::Odometry();
-  // odom_msg.header.stamp = this->get_clock()->now();
-  // odom_msg.header.frame_id = odom_frame_;
-  // odom_msg.child_frame_id = base_frame_;
+  auto odom_msg = nav_msgs::msg::Odometry();
+  odom_msg.header.stamp = this->get_clock()->now();
+  odom_msg.header.frame_id = odom_frame_;
+  odom_msg.child_frame_id = base_frame_;
 
-  // // Position
-  // odom_msg.pose.pose.position.x = x_;
-  // odom_msg.pose.pose.position.y = y_;
-  // odom_msg.pose.pose.position.z = 0.0;
+  // Position
+  odom_msg.pose.pose.position.x = x_;
+  odom_msg.pose.pose.position.y = y_;
+  odom_msg.pose.pose.position.z = 0.0;
 
-  // // Orientation
-  // tf2::Quaternion q;
-  // q.setRPY(0, 0, theta_);
-  // odom_msg.pose.pose.orientation = tf2::toMsg(q);
+  // Orientation
+  tf2::Quaternion q;
+  q.setRPY(0, 0, theta_);
+  odom_msg.pose.pose.orientation = tf2::toMsg(q);
 
-  // // Velocity
-  // odom_msg.twist.twist.linear.x = linear_velocity_;
-  // odom_msg.twist.twist.linear.y = 0.0;
-  // odom_msg.twist.twist.angular.z = angular_velocity_;
+  // Velocity
+  odom_msg.twist.twist.linear.x = linear_velocity_;
+  odom_msg.twist.twist.linear.y = 0.0;
+  odom_msg.twist.twist.angular.z = angular_velocity_;
 
-  // // Covariance (simplified)
-  // const double position_cov = 0.1;
-  // const double orientation_cov = 0.1;
-  // const double velocity_cov = 0.1;
+  // Covariance (simplified)
+  const double position_cov = 0.1;
+  const double orientation_cov = 0.1;
+  const double velocity_cov = 0.1;
 
-  // odom_msg.pose.covariance[0] = position_cov;      // x
-  // odom_msg.pose.covariance[7] = position_cov;      // y
-  // odom_msg.pose.covariance[35] = orientation_cov;  // yaw
+  odom_msg.pose.covariance[0] = position_cov;      // x
+  odom_msg.pose.covariance[7] = position_cov;      // y
+  odom_msg.pose.covariance[35] = orientation_cov;  // yaw
 
-  // odom_msg.twist.covariance[0] = velocity_cov;   // vx
-  // odom_msg.twist.covariance[35] = velocity_cov;  // vyaw
+  odom_msg.twist.covariance[0] = velocity_cov;   // vx
+  odom_msg.twist.covariance[35] = velocity_cov;  // vyaw
 
-  // odom_pub_->publish(odom_msg);
+  odom_pub_->publish(odom_msg);
 
-  // // Publish transform
-  // if (publish_tf_) {
-  //   geometry_msgs::msg::TransformStamped transform;
-  //   transform.header.stamp = odom_msg.header.stamp;
-  //   transform.header.frame_id = odom_frame_;
-  //   transform.child_frame_id = base_frame_;
+  // Publish transform
+  if (publish_tf_) {
+    geometry_msgs::msg::TransformStamped transform;
+    transform.header.stamp = odom_msg.header.stamp;
+    transform.header.frame_id = odom_frame_;
+    transform.child_frame_id = base_frame_;
 
-  //   transform.transform.translation.x = x_;
-  //   transform.transform.translation.y = y_;
-  //   transform.transform.translation.z = 0.0;
-  //   transform.transform.rotation = odom_msg.pose.pose.orientation;
+    transform.transform.translation.x = x_;
+    transform.transform.translation.y = y_;
+    transform.transform.translation.z = 0.0;
+    transform.transform.rotation = odom_msg.pose.pose.orientation;
 
-  //   tf_broadcaster_->sendTransform(transform);
-  // }
+    tf_broadcaster_->sendTransform(transform);
+  }
 }
 
 void RoboClawDriverNode::publish_joint_states() {
