@@ -2,6 +2,15 @@
 // Copyright 2025 WimbleRobotics
 // https://github.com/wimblerobotics/Sigyn
 
+/**
+ * @file roboclaw_driver_node.hpp
+ * @brief ROS2 driver node for BasicMicro RoboClaw motor controllers
+ *
+ * This driver provides high-level robot control through ROS2 interfaces while
+ * maintaining compatibility with TeensyV2 timing patterns. It handles differential
+ * drive kinematics, odometry calculation, and comprehensive motor monitoring.
+ */
+
 #pragma once
 
 #include <tf2/LinearMath/Quaternion.h>
@@ -21,57 +30,110 @@
 
 #include "roboclaw_driver/RoboClaw.h"
 
+/**
+ * @brief Main driver node for RoboClaw motor controller integration
+ *
+ * Provides ROS2 interface for differential drive robots using BasicMicro RoboClaw
+ * controllers. Implements TeensyV2-compatible timing and command patterns for
+ * reliable robot control and accurate odometry.
+ */
 class RoboClawDriverNode : public rclcpp::Node {
  public:
   RoboClawDriverNode();
   ~RoboClawDriverNode();
 
  private:
-  // Main loop function
+  // ============================================================================
+  // CORE CONTROL FUNCTIONS
+  // ============================================================================
+
+  /** @brief Main control loop executed at fixed frequency */
   void main_loop();
 
-  // Callback functions
+  /** @brief Callback for incoming velocity commands */
   void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg);
 
-  // Error decoding
+  /** @brief Decode RoboClaw error status bits into human-readable strings */
   void decodeErrorStatus(uint32_t error_status, char* buffer, size_t size) const;
 
-  // Core functionality
+  // ============================================================================
+  // HARDWARE INTERFACE FUNCTIONS
+  // ============================================================================
+
+  /** @brief Initialize communication with RoboClaw controller */
   bool initialize_roboclaw();
+
+  /** @brief Process cached velocity commands and send to motors */
   void handle_cmd_vel();
+
+  /** @brief Read sensor data from RoboClaw (encoders, status, etc.) */
   void read_sensors();
-  void publish_odometry();
-  void publish_joint_states();
-  void publish_status();
-  void calculate_odometry();
+
+  /** @brief Get fresh encoder readings with error handling */
   bool get_fresh_encoders(RoboClaw::EncodeResult& enc1, RoboClaw::EncodeResult& enc2);
 
-  // Parameter management
+  // ============================================================================
+  // DATA PUBLISHING FUNCTIONS
+  // ============================================================================
+
+  /** @brief Calculate and publish robot odometry */
+  void publish_odometry();
+
+  /** @brief Publish wheel joint states for visualization */
+  void publish_joint_states();
+
+  /** @brief Publish motor status and health information */
+  void publish_status();
+
+  /** @brief Calculate odometry from encoder readings */
+  void calculate_odometry();
+
+  // ============================================================================
+  // PARAMETER MANAGEMENT
+  // ============================================================================
+
+  /** @brief Declare all ROS2 parameters with default values */
   void declare_parameters();
+
+  /** @brief Load parameter values into member variables */
   void load_parameters();
+
+  /** @brief Log all parameter values for debugging */
   void log_parameters();
 
-  // Utility functions
+  // ============================================================================
+  // UTILITY FUNCTIONS
+  // ============================================================================
+
+  /** @brief Convert ROS Twist to individual motor speeds using differential drive kinematics */
   void convert_twist_to_motor_speeds(const geometry_msgs::msg::Twist& twist, int32_t& left_speed,
                                      int32_t& right_speed);
+
+  /** @brief Normalize angle to [-π, π] range */
   double normalize_angle(double angle);
 
-  // RoboClaw interface
-  std::unique_ptr<RoboClaw> roboclaw_;
+  // ============================================================================
+  // MEMBER VARIABLES
+  // ============================================================================
 
-  // ROS2 interface
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
-  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_states_pub_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
-  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
-  rclcpp::TimerBase::SharedPtr main_timer_;
+  // Hardware interface
+  std::unique_ptr<RoboClaw> roboclaw_;  ///< Interface to RoboClaw motor controller
 
-  // Configuration parameters
-  uint8_t address_;
-  std::string device_name_;
-  int32_t baud_rate_;
-  int device_timeout_;
+  // ROS2 communication
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr
+      cmd_vel_sub_;                                                 ///< Velocity command subscriber
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;  ///< Odometry publisher
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr
+      joint_states_pub_;                                            ///< Joint states publisher
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;  ///< Status publisher
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;   ///< Transform broadcaster
+  rclcpp::TimerBase::SharedPtr main_timer_;                         ///< Main control loop timer
+
+  // Hardware configuration parameters
+  uint8_t address_;          ///< RoboClaw device address (typically 0x80)
+  std::string device_name_;  ///< Serial device path (e.g., "/dev/ttyUSB0")
+  int32_t baud_rate_;        ///< Serial communication baud rate
+  int device_timeout_;       ///< Command timeout in milliseconds
 
   // Publishing rates
   double odometry_rate_;

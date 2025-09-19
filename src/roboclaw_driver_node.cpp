@@ -33,6 +33,13 @@ using namespace std::chrono_literals;
 #define SetDWORDval(arg) \
   (uint8_t)(arg >> 24), (uint8_t)(arg >> 16), (uint8_t)(arg >> 8), (uint8_t)arg
 
+/**
+ * @brief Constructor for RoboClawDriverNode
+ *
+ * Initializes the ROS2 node, sets up parameters, creates RoboClaw interface,
+ * and starts the main control loop. Follows TeensyV2 architecture patterns
+ * for compatibility with existing robot configurations.
+ */
 RoboClawDriverNode::RoboClawDriverNode()
     : Node("roboclaw_driver"),
       roboclaw_(nullptr),
@@ -50,7 +57,7 @@ RoboClawDriverNode::RoboClawDriverNode()
   load_parameters();
   log_parameters();
 
-  // Log all parameters alphabetically
+  // Log all parameters for visibility during startup
   RCUTILS_LOG_INFO("=== RoboClaw Driver Parameters ===");
   RCUTILS_LOG_INFO("accel: %d", accel_);
   RCUTILS_LOG_INFO("base_frame: %s", base_frame_.c_str());
@@ -82,28 +89,30 @@ RoboClawDriverNode::RoboClawDriverNode()
   RCUTILS_LOG_INFO("wheel_separation: %.3f", wheel_separation_);
   RCUTILS_LOG_INFO("===================================");
 
-  // Initialize RoboClaw
-  roboclaw_ = std::make_unique<RoboClaw>(0.0, 0.0, device_name_, address_,
-                                         baud_rate_, do_debug_, do_low_level_debug_);
+  // Initialize RoboClaw hardware interface with dummy current limits (0.0, 0.0)
+  // Current limiting is handled by RoboClaw firmware, not this driver
+  roboclaw_ = std::make_unique<RoboClaw>(0.0, 0.0, device_name_, address_, baud_rate_, do_debug_,
+                                         do_low_level_debug_);
 
   if (!initialize_roboclaw()) {
     RCUTILS_LOG_ERROR("Failed to initialize RoboClaw driver");
     return;
   }
 
-  // Initialize ROS2 interface
+  // Initialize ROS2 publishers and subscribers based on configuration
   cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
       "cmd_vel", 1, std::bind(&RoboClawDriverNode::cmd_vel_callback, this, std::placeholders::_1));
 
-  // Create publishers based on configuration
+  // Create publishers conditionally based on configuration
   if (publish_odom_) {
     odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("odom", 10);
 
-    // Only create TF broadcaster if both odom and tf are enabled
+    // TF broadcaster requires odometry to be enabled
     if (publish_tf_) {
       tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     }
   } else if (publish_tf_) {
+    // Invalid configuration: TF requires odometry
     RCUTILS_LOG_WARN(
         "publish_tf is enabled but publish_odom is disabled. TF "
         "requires odometry. Disabling TF publishing.");
@@ -114,16 +123,17 @@ RoboClawDriverNode::RoboClawDriverNode()
     joint_states_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("joint_states", 10);
   }
 
+  // Always create status publisher for monitoring robot health
   status_pub_ = this->create_publisher<std_msgs::msg::String>("roboclaw_status", 10);
 
-  // Initialize timing
+  // Initialize timing variables for publishing rate control
   auto now = this->get_clock()->now();
   last_odom_time_ = now;
   last_odometry_publish_ = now;
   last_joint_states_publish_ = now;
   last_status_publish_ = now;
 
-  // Start main loop timer
+  // Start main control loop at fixed frequency (TeensyV2 compatible)
   auto timer_period = std::chrono::duration<double>(1.0 / MAIN_LOOP_FREQUENCY);
   main_timer_ =
       this->create_wall_timer(std::chrono::duration_cast<std::chrono::nanoseconds>(timer_period),
@@ -139,19 +149,32 @@ RoboClawDriverNode::~RoboClawDriverNode() {
   }
 }
 
+/**
+ * @brief Initialize communication with RoboClaw controller
+ *
+ * Establishes serial connection, reads firmware version, configures PID parameters,
+ * and resets encoder values. This must be called before normal operation.
+ *
+ * @return true if initialization successful, false otherwise
+ */
 bool RoboClawDriverNode::initialize_roboclaw() {
   RCUTILS_LOG_INFO("Connected to RoboClaw on %s at %d baud", device_name_.c_str(), baud_rate_);
+
+  // Read and display firmware version for verification
   std::string version;
   CmdReadFirmwareVersion cmd(*roboclaw_, version);
   cmd.execute();
 
   RCUTILS_LOG_INFO("RoboClaw Firmware Version: %s", version.c_str());
 
+  // Configure PID parameters for both motors
+  // These values control how the motors respond to speed commands
   CmdSetPid command_m1_pid(*roboclaw_, RoboClaw::kM1, m1_p_, m1_i_, m1_d_, m1_qpps_);
   command_m1_pid.execute();
   CmdSetPid command_m2_pid(*roboclaw_, RoboClaw::kM2, m2_p_, m2_i_, m2_d_, m2_qpps_);
   command_m2_pid.execute();
 
+  // Reset encoder counts to establish known starting position
   CmdSetEncoderValue m1(*roboclaw_, RoboClaw::kM1, 0);
   m1.execute();
   CmdSetEncoderValue m2(*roboclaw_, RoboClaw::kM2, 0);
@@ -161,18 +184,22 @@ bool RoboClawDriverNode::initialize_roboclaw() {
   return true;
 }
 
+/**
+ * @brief Main control loop executed at fixed frequency
+ *
+ * Handles velocity commands, reads sensors, calculates odometry, and publishes
+ * data at configured rates. Follows TeensyV2 timing patterns for compatibility.
+ */
 void RoboClawDriverNode::main_loop() {
   auto now = this->get_clock()->now();
 
-  // RCUTILS_LOG_INFO( "LOOP");
-
-  // Handle cmd_vel processing and motor commands
+  // Process velocity commands and send motor commands
   handle_cmd_vel();
 
-  // Read sensor data and update odometry
+  // Read sensor data from RoboClaw and update internal state
   read_sensors();
 
-  // Publishing based on time intervals
+  // Publish odometry data if enabled and rate limit reached
   if (publish_odom_) {
     double odometry_dt = (now - last_odometry_publish_).seconds();
     if (odometry_dt >= (1.0 / odometry_rate_)) {
@@ -181,6 +208,7 @@ void RoboClawDriverNode::main_loop() {
     }
   }
 
+  // Publish joint states if enabled and rate limit reached
   if (publish_joint_states_) {
     double joint_dt = (now - last_joint_states_publish_).seconds();
     if (joint_dt >= (1.0 / joint_states_rate_)) {
@@ -189,6 +217,7 @@ void RoboClawDriverNode::main_loop() {
     }
   }
 
+  // Always publish status information at configured rate
   double status_dt = (now - last_status_publish_).seconds();
   if (status_dt >= (1.0 / status_rate_)) {
     publish_status();
@@ -196,39 +225,61 @@ void RoboClawDriverNode::main_loop() {
   }
 }
 
+/**
+ * @brief Callback for incoming velocity commands
+ *
+ * Thread-safe storage of cmd_vel messages with timestamp and sequence tracking.
+ * Commands are processed in the main loop to maintain timing consistency.
+ *
+ * @param msg Twist message containing linear and angular velocity commands
+ */
 void RoboClawDriverNode::cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg) {
   static rclcpp::Time time_of_last_cmd_vel = this->get_clock()->now();
 
-  std::lock_guard<std::mutex> lock(last_cmd_vel_.mutex);  // ###
+  // Thread-safe update of command cache
+  std::lock_guard<std::mutex> lock(last_cmd_vel_.mutex);
   last_cmd_vel_.cmd_vel = *msg;
   last_cmd_vel_.sequence_number++;
   last_cmd_vel_.timestamp = this->get_clock()->now();
 }
 
+/**
+ * @brief Process cached velocity commands and send to motors
+ *
+ * Converts twist commands to motor speeds, applies safety limits, and sends
+ * buffered commands to RoboClaw. Only processes new commands to avoid redundancy.
+ */
 void RoboClawDriverNode::handle_cmd_vel() {
   static uint32_t last_sequence_number = 0;
 
   std::lock_guard<std::mutex> lock(last_cmd_vel_.mutex);
 
+  // Skip if no new command received
   if (last_cmd_vel_.sequence_number <= last_sequence_number) {
-    // No new command since last processed
     return;
   }
 
   last_sequence_number = last_cmd_vel_.sequence_number;
 
+  // Convert twist to individual motor speeds
   int32_t target_left_speed;
   int32_t target_right_speed;
   convert_twist_to_motor_speeds(last_cmd_vel_.cmd_vel, target_left_speed, target_right_speed);
 
+  // Calculate maximum distance for safety timeout
+  // Motors will stop after traveling this distance without new commands
   const int32_t m1_max_distance_quad_pulses =
       (int32_t)fabs(target_left_speed * max_seconds_uncommanded_travel_);
   const int32_t m2_max_distance_quad_pulses =
       (int32_t)fabs(target_right_speed * max_seconds_uncommanded_travel_);
+
+  // Send buffered command with acceleration and distance limits
   CmdDoBufferedM1M2DriveSpeedAccelDistance cmd(*roboclaw_, accel_, target_left_speed,
                                                m1_max_distance_quad_pulses, target_right_speed,
                                                m2_max_distance_quad_pulses);
   cmd.execute();
+
+  // Log timing information if debug enabled
   if (do_debug_) {
     rclcpp::Time now = this->get_clock()->now();
     double lag_time = (now - last_cmd_vel_.timestamp).seconds();
@@ -236,23 +287,33 @@ void RoboClawDriverNode::handle_cmd_vel() {
   }
 }
 
+/**
+ * @brief Convert ROS twist commands to individual motor speeds
+ *
+ * Implements differential drive kinematics to convert linear and angular
+ * velocities into left and right wheel speeds. Applies safety velocity limits.
+ *
+ * @param twist Input velocity command (linear.x and angular.z used)
+ * @param left_speed Output left motor speed in quadrature pulses per second
+ * @param right_speed Output right motor speed in quadrature pulses per second
+ */
 void RoboClawDriverNode::convert_twist_to_motor_speeds(const geometry_msgs::msg::Twist& twist,
                                                        int32_t& left_speed, int32_t& right_speed) {
-  // Differential drive kinematics
+  // Apply safety limits to input velocities
   double linear_vel = std::clamp(twist.linear.x, -max_linear_velocity_, max_linear_velocity_);
   double angular_vel = std::clamp(twist.angular.z, -max_angular_velocity_, max_angular_velocity_);
 
-  // Calculate wheel velocities in m/s
+  // Differential drive kinematics: convert robot velocities to wheel velocities
   double left_wheel_vel = linear_vel - (angular_vel * wheel_separation_ / 2.0);
   double right_wheel_vel = linear_vel + (angular_vel * wheel_separation_ / 2.0);
 
-  // Convert to encoder counts per second (QPPS - Quadrature Pulses Per
-  // Second)
+  // Convert wheel velocities (m/s) to encoder counts per second (QPPS)
   double left_qpps =
       (left_wheel_vel / (2.0 * M_PI * wheel_radius_)) * encoder_counts_per_revolution_;
   double right_qpps =
       (right_wheel_vel / (2.0 * M_PI * wheel_radius_)) * encoder_counts_per_revolution_;
 
+  // Convert to integer speeds for RoboClaw commands
   left_speed = static_cast<int32_t>(left_qpps);
   right_speed = static_cast<int32_t>(right_qpps);
 }
@@ -271,112 +332,122 @@ bool RoboClawDriverNode::get_fresh_encoders(RoboClaw::EncodeResult& enc1,
   return true;
 }
 
+/**
+ * @brief Read sensor data from RoboClaw using distributed state machine
+ *
+ * Implements TeensyV2-compatible sensor reading pattern that distributes
+ * different sensor readings across multiple control cycles to prevent
+ * overwhelming the serial communication channel.
+ */
 void RoboClawDriverNode::read_sensors() {
-  // Get fresh encoder readings
+  // Always get fresh encoder readings for real-time odometry
   get_fresh_encoders(roboclaw_state_.m1_enc_result, roboclaw_state_.m2_enc_result);
 
-  // Spread status readings across cycles to avoid overwhelming serial
-  // communication This follows the TeensyV2 pattern of state machine for
-  // different readings
+  // Distribute status readings across cycles to avoid overwhelming serial communication
+  // This follows the TeensyV2 pattern of state machine for different readings
   auto now = this->get_clock()->now();
   static auto last_status_time = now;
 
-  if ((now - last_status_time).seconds() >= 0.1) {  // 10Hz status reading
+  // Rate limit status readings to 10Hz to prevent serial overload
+  if ((now - last_status_time).seconds() >= 0.1) {
     switch (current_status_state_) {
       case READ_BATTERY: {
+        // Read both logic and main battery voltages
         CmdReadLogicBatteryVoltage cmd_logic_batt(*roboclaw_,
                                                   roboclaw_state_.logic_battery_voltage);
         cmd_logic_batt.execute();
         CmdReadMainBatteryVoltage cmd_main_batt(*roboclaw_, roboclaw_state_.main_battery_voltage);
         cmd_main_batt.execute();
-      }
-
-      break;
+      } break;
 
       case READ_TEMPERATURES: {
-        // Read temperature sensors
+        // Read temperature sensors (if available on your RoboClaw model)
         CmdReadTemperature cmd_temp1(*roboclaw_, RoboClaw::kTemperature1,
                                      roboclaw_state_.temperature1);
         cmd_temp1.execute();
         CmdReadTemperature cmd_temp2(*roboclaw_, RoboClaw::kTemperature2,
                                      roboclaw_state_.temperature2);
         cmd_temp2.execute();
-      }
+      } break;
 
-      break;
-
-      case READ_CURRENTS:
-        // Read motor currents
-        {
-          CmdReadMotorCurrents cmd_currents(*roboclaw_, roboclaw_state_.motorCurrents);
-          cmd_currents.execute();
-        }
-        break;
+      case READ_CURRENTS: {
+        // Read motor current consumption for monitoring
+        CmdReadMotorCurrents cmd_currents(*roboclaw_, roboclaw_state_.motorCurrents);
+        cmd_currents.execute();
+      } break;
 
       case READ_ERROR: {
+        // Read error status register for fault detection
         CmdReadStatus cmd_status(*roboclaw_, roboclaw_state_.error_status);
         cmd_status.execute();
-      }
-
-      break;
+      } break;
 
       case READ_SPEEDS: {
+        // Read actual motor speeds for feedback
         CmdReadEncoderSpeed cmd_speed_m1(*roboclaw_, RoboClaw::kM1, roboclaw_state_.m1_speed);
         cmd_speed_m1.execute();
         CmdReadEncoderSpeed cmd_speed_m2(*roboclaw_, RoboClaw::kM2, roboclaw_state_.m2_speed);
         cmd_speed_m2.execute();
-      }
-
-      break;
+      } break;
     }
 
-    // Advance to next state
+    // Cycle through all sensor reading states
     current_status_state_ = static_cast<StatusReadState>((current_status_state_ + 1) % 5);
     last_status_time = now;
   }
 }
 
+/**
+ * @brief Calculate robot odometry from encoder readings
+ *
+ * Implements standard differential drive odometry calculation using encoder
+ * deltas to estimate robot position and velocity. Updates global pose estimates.
+ */
 void RoboClawDriverNode::calculate_odometry() {
   auto now = this->get_clock()->now();
 
+  // Skip calculation on first reading to establish baseline
   if (first_encoder_reading_) {
     last_odom_time_ = now;
     first_encoder_reading_ = false;
     return;
   }
 
+  // Calculate time delta - skip if too small to avoid numerical issues
   double dt = (now - last_odom_time_).seconds();
-  if (dt < 0.01) {  // Skip if time delta too small
+  if (dt < 0.01) {
     return;
   }
 
-  // Use current encoder values from roboclaw_state_
+  // Calculate encoder deltas since last reading
   static uint32_t prev_enc1 = roboclaw_state_.m1_enc_result.value;
   static uint32_t prev_enc2 = roboclaw_state_.m2_enc_result.value;
 
+  // Handle encoder wraparound using signed arithmetic
   int32_t delta_enc1 = static_cast<int32_t>(roboclaw_state_.m1_enc_result.value - prev_enc1);
   int32_t delta_enc2 = static_cast<int32_t>(roboclaw_state_.m2_enc_result.value - prev_enc2);
 
   prev_enc1 = roboclaw_state_.m1_enc_result.value;
   prev_enc2 = roboclaw_state_.m2_enc_result.value;
 
+  // Convert encoder counts to linear distances (meters)
   double delta_left = (delta_enc1 * M_PI * wheel_radius_ * 2.0f) / encoder_counts_per_revolution_;
   double delta_right = (delta_enc2 * M_PI * wheel_radius_ * 2.0f) / encoder_counts_per_revolution_;
 
-  // Calculate robot motion
-  double delta_distance = (delta_left + delta_right) / 2.0;
-  double delta_theta = (delta_right - delta_left) / wheel_separation_;
+  // Differential drive odometry calculations
+  double delta_distance = (delta_left + delta_right) / 2.0;             // Forward distance
+  double delta_theta = (delta_right - delta_left) / wheel_separation_;  // Angular change
 
-  // Update pose
+  // Update robot pose using differential drive kinematics
   double delta_x = delta_distance * cos(theta_ + delta_theta / 2.0);
   double delta_y = delta_distance * sin(theta_ + delta_theta / 2.0);
 
   x_ += delta_x;
   y_ += delta_y;
   theta_ += delta_theta;
-  theta_ = normalize_angle(theta_);
+  theta_ = normalize_angle(theta_);  // Keep angle in [-π, π] range
 
-  // Calculate velocities
+  // Calculate velocities for this time step
   linear_velocity_ = delta_distance / dt;
   angular_velocity_ = delta_theta / dt;
 
