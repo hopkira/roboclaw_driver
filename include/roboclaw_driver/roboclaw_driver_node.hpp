@@ -91,8 +91,6 @@ class RoboClawDriverNode : public rclcpp::Node {
   double max_linear_velocity_;
   double max_angular_velocity_;
   double max_seconds_uncommanded_travel_{0.05};
-  double max_m1_current_{0.0};
-  double max_m2_current_{0.0};
 
   // PID parameters
   double m1_p_;

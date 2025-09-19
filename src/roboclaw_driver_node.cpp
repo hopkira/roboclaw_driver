@@ -71,8 +71,6 @@ RoboClawDriverNode::RoboClawDriverNode()
   RCUTILS_LOG_INFO("m2_qpps: %d", m2_qpps_);
   RCUTILS_LOG_INFO("max_angular_velocity: %.1f", max_angular_velocity_);
   RCUTILS_LOG_INFO("max_linear_velocity: %.1f", max_linear_velocity_);
-  RCUTILS_LOG_INFO("max_m1_current: %.1f", max_m1_current_);
-  RCUTILS_LOG_INFO("max_m2_current: %.1f", max_m2_current_);
   RCUTILS_LOG_INFO("max_seconds_uncommanded_travel: %.3f", max_seconds_uncommanded_travel_);
   RCUTILS_LOG_INFO("odom_frame: %s", odom_frame_.c_str());
   RCUTILS_LOG_INFO("odometry_rate: %.1f", odometry_rate_);
@@ -85,7 +83,7 @@ RoboClawDriverNode::RoboClawDriverNode()
   RCUTILS_LOG_INFO("===================================");
 
   // Initialize RoboClaw
-  roboclaw_ = std::make_unique<RoboClaw>(max_m1_current_, max_m2_current_, device_name_, address_,
+  roboclaw_ = std::make_unique<RoboClaw>(0.0, 0.0, device_name_, address_,
                                          baud_rate_, do_debug_, do_low_level_debug_);
 
   if (!initialize_roboclaw()) {
@@ -539,8 +537,6 @@ void RoboClawDriverNode::declare_parameters() {
                           0.07);  // Match config file default
   this->declare_parameter("max_linear_velocity",
                           0.3);  // Match config file default
-  this->declare_parameter("max_m1_current", 0.0);
-  this->declare_parameter("max_m2_current", 0.0);
   this->declare_parameter("max_seconds_uncommanded_travel",
                           0.2);  // Match config file default
   this->declare_parameter("odom_frame", "odom");
@@ -579,8 +575,6 @@ void RoboClawDriverNode::load_parameters() {
   m2_qpps_ = this->get_parameter_or("m2_qpps", static_cast<uint32_t>(2437));
   max_angular_velocity_ = this->get_parameter_or("max_angular_velocity", 0.07);
   max_linear_velocity_ = this->get_parameter_or("max_linear_velocity", 0.3);
-  max_m1_current_ = this->get_parameter_or("max_m1_current", 0.0);
-  max_m2_current_ = this->get_parameter_or("max_m2_current", 0.0);
   max_seconds_uncommanded_travel_ = this->get_parameter_or("max_seconds_uncommanded_travel", 0.2);
   odom_frame_ = this->get_parameter_or("odom_frame", std::string("odom"));
   odometry_rate_ = this->get_parameter_or("odometry_rate", 67.0);
@@ -617,8 +611,6 @@ void RoboClawDriverNode::log_parameters() {
     RCUTILS_LOG_INFO("  max_linear_velocity: %.3f m/s", max_linear_velocity_);
     RCUTILS_LOG_INFO("  max_angular_velocity: %.3f rad/s", max_angular_velocity_);
     RCUTILS_LOG_INFO("  max_seconds_uncommanded_travel: %.3f s", max_seconds_uncommanded_travel_);
-    RCUTILS_LOG_INFO("  max_m1_current: %.3f A", max_m1_current_);
-    RCUTILS_LOG_INFO("  max_m2_current: %.3f A", max_m2_current_);
 
     // PID parameters (high precision logging to catch truncation)
     RCUTILS_LOG_INFO("Motor 1 PID:");
