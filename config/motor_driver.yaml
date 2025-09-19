@@ -4,7 +4,6 @@ roboclaw_driver:
     device_name: "/dev/ttyAMA0"           # Serial device path for RoboClaw
     baud_rate: 230400                      # Serial communication baud rate
     device_timeout: 100                    # Command timeout in milliseconds
-    max_retries: 3                         # Maximum retry attempts for failed commands
 
     # Publishing rates (Hz) - Controls how often data is published
     odometry_rate: 67.0                    # Rate for publishing odometry data
@@ -43,9 +42,6 @@ roboclaw_driver:
 
     # Motor acceleration settings
     accel: 3000                           # Motor acceleration in encoder counts per second squared
-
-    # Safety settings
-    cmd_vel_timeout: 1.0                  # Stop motors if no cmd_vel received for this many seconds
 
     # Publishing control - Enable/disable specific data publishing
     publish_odom: false                    # Publish odometry messages

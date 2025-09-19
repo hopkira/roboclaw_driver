@@ -26,7 +26,6 @@
 #include "roboclaw_driver/roboclaw_cmd_read_logic_battery_voltage.h"
 #include "roboclaw_driver/roboclaw_cmd_read_main_battery_voltage.h"
 #include "roboclaw_driver/roboclaw_cmd_read_motor_currents.h"
-#include "roboclaw_driver/roboclaw_cmd_read_motor_velocity_pidq.h"
 #include "roboclaw_driver/roboclaw_cmd_read_status.h"
 #include "roboclaw_driver/roboclaw_cmd_read_temperature.h"
 #include "roboclaw_driver/roboclaw_cmd_set_encoder_value.h"
@@ -35,9 +34,8 @@
 
 const char *RoboClaw::motorNames_[] = {"M1", "M2", "NONE"};
 
-RoboClaw::RoboClaw(float m1MaxCurrent, float m2MaxCurrent,
-                   std::string device_name, uint8_t device_port,
-                   uint32_t baud_rate, bool(do_debug), bool do_low_level_debug)
+RoboClaw::RoboClaw(float m1MaxCurrent, float m2MaxCurrent, std::string device_name,
+                   uint8_t device_port, uint32_t baud_rate, bool(do_debug), bool do_low_level_debug)
     : baud_rate_(baud_rate),
       device_name_(device_name),
       device_port_(device_port),
@@ -72,22 +70,18 @@ RoboClaw::~RoboClaw() {
 }
 
 void RoboClaw::openPort() {
-  RCUTILS_LOG_INFO("[RoboClaw::openPort] about to open port: %s",
-                   device_name_.c_str());
+  RCUTILS_LOG_INFO("[RoboClaw::openPort] about to open port: %s", device_name_.c_str());
   device_port_ = open(device_name_.c_str(), O_RDWR | O_NOCTTY /*| O_SYNC*/);
   if (device_port_ < 0) {
-    RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to open USB port: %s, errno: (%d) %s",
-        device_name_.c_str(), errno, strerror(errno));
-    throw new TRoboClawException(
-        "[RoboClaw::openPort] Unable to open USB port");
+    RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unable to open USB port: %s, errno: (%d) %s",
+                      device_name_.c_str(), errno, strerror(errno));
+    throw new TRoboClawException("[RoboClaw::openPort] Unable to open USB port");
   }
 
   // Fetch and set raw options
   struct termios portOptions;
   if (tcgetattr(device_port_, &portOptions) < 0) {
-    RCUTILS_LOG_ERROR("[RoboClaw::openPort] tcgetattr failed: %d: %s", errno,
-                      strerror(errno));
+    RCUTILS_LOG_ERROR("[RoboClaw::openPort] tcgetattr failed: %d: %s", errno, strerror(errno));
     throw new TRoboClawException("[RoboClaw::openPort] tcgetattr failed");
   }
 
@@ -127,10 +121,8 @@ void RoboClaw::openPort() {
       baud = B230400;
       break;
     default:
-      RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unsupported baud rate: %u",
-                        baud_rate_);
-      throw new TRoboClawException(
-          "[RoboClaw::openPort] Unsupported baud rate");
+      RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unsupported baud rate: %u", baud_rate_);
+      throw new TRoboClawException("[RoboClaw::openPort] Unsupported baud rate");
   }
   cfsetispeed(&portOptions, baud);
   cfsetospeed(&portOptions, baud);
@@ -179,8 +171,7 @@ uint16_t RoboClaw::get2ByteCommandResult2(uint8_t command) {
     // Resync on CRC failure
     tcflush(device_port_, TCIFLUSH);
     usleep(2000);
-    throw new TRoboClawException(
-        "[RoboClaw::get2ByteCommandResult2 INVALID CRC");
+    throw new TRoboClawException("[RoboClaw::get2ByteCommandResult2 INVALID CRC");
     return 0;
   }
 }
@@ -224,8 +215,7 @@ uint32_t RoboClaw::getUlongCommandResult2(uint8_t command) {
   // Resync on CRC failure
   tcflush(device_port_, TCIFLUSH);
   usleep(2000);
-  throw new TRoboClawException(
-      "[RoboClaw::getUlongCommandResult2] INVALID CRC");
+  throw new TRoboClawException("[RoboClaw::getUlongCommandResult2] INVALID CRC");
   return 0;
 }
 
@@ -328,13 +318,12 @@ uint8_t RoboClaw::readByteWithTimeout2() {
 
   int retval = poll(ufd, 1, 50);  // increase timeout for slower pacing
   if (retval < 0) {
-    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Poll failed (%d) %s",
-                      errno, strerror(errno));
+    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Poll failed (%d) %s", errno,
+                      strerror(errno));
     throw new TRoboClawException("[RoboClaw::readByteWithTimeout2 Read error");
   } else if (retval == 0) {
     std::stringstream ev;
-    ev << "[RoboClaw::readByteWithTimeout2 TIMEOUT revents: " << std::hex
-       << ufd[0].revents;
+    ev << "[RoboClaw::readByteWithTimeout2 TIMEOUT revents: " << std::hex << ufd[0].revents;
     RCUTILS_LOG_ERROR(ev.str().c_str());
     throw new TRoboClawException("[RoboClaw::readByteWithTimeout2 TIMEOUT");
   } else if (ufd[0].revents & POLLERR) {
@@ -342,8 +331,7 @@ uint8_t RoboClaw::readByteWithTimeout2() {
     // Do not restart port mid-transaction; flush and resync instead
     tcflush(device_port_, TCIFLUSH);
     // usleep(2000);
-    throw new TRoboClawException(
-        "[RoboClaw::readByteWithTimeout2 Error on socket");
+    throw new TRoboClawException("[RoboClaw::readByteWithTimeout2 Error on socket");
   } else if (ufd[0].revents & POLLIN) {
     unsigned char buffer[1];
     ssize_t bytesRead = ::read(device_port_, buffer, sizeof(buffer));
@@ -352,8 +340,7 @@ uint8_t RoboClaw::readByteWithTimeout2() {
           "[RoboClaw::readByteWithTimeout2 Failed to read 1 byte, read: "
           "%d",
           (int)bytesRead);
-      throw TRoboClawException(
-          "[RoboClaw::readByteWithTimeout2 Failed to read 1 byte");
+      throw TRoboClawException("[RoboClaw::readByteWithTimeout2 Failed to read 1 byte");
     }
 
     if (do_debug_ || do_low_level_debug_) {
@@ -366,8 +353,7 @@ uint8_t RoboClaw::readByteWithTimeout2() {
     return buffer[0];
   } else {
     RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Unhandled case");
-    throw new TRoboClawException(
-        "[RoboClaw::readByteWithTimeout2 Unhandled case");
+    throw new TRoboClawException("[RoboClaw::readByteWithTimeout2 Unhandled case");
   }
 
   return 0;
@@ -417,8 +403,7 @@ void RoboClaw::writeByte2(uint8_t byte) {
         "errno: %d (%s)",
         (int)result, errno, strerror(errno));
     restartPort();
-    throw new TRoboClawException(
-        "[RoboClaw::writeByte2] Unable to write one byte");
+    throw new TRoboClawException("[RoboClaw::writeByte2] Unable to write one byte");
   }
 }
 

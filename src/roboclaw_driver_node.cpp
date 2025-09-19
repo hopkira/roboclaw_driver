@@ -12,7 +12,6 @@
 
 #include "nav_msgs/msg/odometry.hpp"
 #include "roboclaw_driver/roboclaw_cmd_do_buffered_m1m2_drive_speed_accel_distance.h"
-#include "roboclaw_driver/roboclaw_cmd_read_buffer_length.h"
 #include "roboclaw_driver/roboclaw_cmd_read_encoder.h"
 #include "roboclaw_driver/roboclaw_cmd_read_encoder_speed.h"
 #include "roboclaw_driver/roboclaw_cmd_read_firmware_version.h"
@@ -41,8 +40,7 @@ RoboClawDriverNode::RoboClawDriverNode()
       angular_velocity_(0.0),
       first_encoder_reading_(true),
       current_status_state_(READ_BATTERY),
-      motors_initialized_(false),
-      encoder_init_done_(false) {
+      motors_initialized_(false) {
   // Initialize parameters in separate functions for better organization
   declare_parameters();
   load_parameters();
@@ -53,7 +51,6 @@ RoboClawDriverNode::RoboClawDriverNode()
   RCUTILS_LOG_INFO("accel: %d", accel_);
   RCUTILS_LOG_INFO("base_frame: %s", base_frame_.c_str());
   RCUTILS_LOG_INFO("baud_rate: %d", baud_rate_);
-  RCUTILS_LOG_INFO("cmd_vel_timeout: %.1f", cmd_vel_timeout_);
   RCUTILS_LOG_INFO("do_debug: %s", do_debug_ ? "true" : "false");
   RCUTILS_LOG_INFO("do_low_level_debug: %s", do_low_level_debug_ ? "true" : "false");
   RCUTILS_LOG_INFO("device_name: %s", device_name_.c_str());
@@ -72,7 +69,6 @@ RoboClawDriverNode::RoboClawDriverNode()
   RCUTILS_LOG_INFO("max_linear_velocity: %.1f", max_linear_velocity_);
   RCUTILS_LOG_INFO("max_m1_current: %.1f", max_m1_current_);
   RCUTILS_LOG_INFO("max_m2_current: %.1f", max_m2_current_);
-  RCUTILS_LOG_INFO("max_retries: %d", max_retries_);
   RCUTILS_LOG_INFO("max_seconds_uncommanded_travel: %.3f", max_seconds_uncommanded_travel_);
   RCUTILS_LOG_INFO("odom_frame: %s", odom_frame_.c_str());
   RCUTILS_LOG_INFO("odometry_rate: %.1f", odometry_rate_);
@@ -209,7 +205,6 @@ void RoboClawDriverNode::cmd_vel_callback(const geometry_msgs::msg::Twist::Share
 
 void RoboClawDriverNode::handle_cmd_vel() {
   static uint32_t last_sequence_number = 0;
-  static rclcpp::Time time_of_last_cmd_vel = this->get_clock()->now();
 
   std::lock_guard<std::mutex> lock(last_cmd_vel_.mutex);
 
@@ -234,11 +229,8 @@ void RoboClawDriverNode::handle_cmd_vel() {
   cmd.execute();
   if (do_debug_) {
     rclcpp::Time now = this->get_clock()->now();
-    double delta_time = (now - time_of_last_cmd_vel).seconds();
     double lag_time = (now - last_cmd_vel_.timestamp).seconds();
-    time_of_last_cmd_vel = last_cmd_vel_.timestamp;
-    RCUTILS_LOG_INFO("delta_time=%.3f, lag_time=%.3f, sequence=%u", delta_time, lag_time,
-                     last_cmd_vel_.sequence_number);
+    RCUTILS_LOG_INFO("lag_time=%.3f, sequence=%u", lag_time, last_cmd_vel_.sequence_number);
   }
 }
 
@@ -334,23 +326,15 @@ void RoboClawDriverNode::read_sensors() {
       }
 
       break;
-
-      case READ_BUFFERS:
-        // Read command buffer depths
-        break;
     }
 
     // Advance to next state
-    current_status_state_ = static_cast<StatusReadState>((current_status_state_ + 1) % 6);
+    current_status_state_ = static_cast<StatusReadState>((current_status_state_ + 1) % 5);
     last_status_time = now;
   }
 }
 
 void RoboClawDriverNode::calculate_odometry() {
-  if (!encoder_init_done_) {
-    return;
-  }
-
   auto now = this->get_clock()->now();
 
   if (first_encoder_reading_) {
@@ -364,16 +348,15 @@ void RoboClawDriverNode::calculate_odometry() {
     return;
   }
 
-  // This is a simplified odometry calculation - in a real implementation you'd
-  // want to track encoder differences between readings, not absolute values
-  static uint32_t prev_enc1 = last_enc1_;
-  static uint32_t prev_enc2 = last_enc2_;
+  // Use current encoder values from roboclaw_state_
+  static uint32_t prev_enc1 = roboclaw_state_.m1_enc_result.value;
+  static uint32_t prev_enc2 = roboclaw_state_.m2_enc_result.value;
 
-  int32_t delta_enc1 = static_cast<int32_t>(last_enc1_ - prev_enc1);
-  int32_t delta_enc2 = static_cast<int32_t>(last_enc2_ - prev_enc2);
+  int32_t delta_enc1 = static_cast<int32_t>(roboclaw_state_.m1_enc_result.value - prev_enc1);
+  int32_t delta_enc2 = static_cast<int32_t>(roboclaw_state_.m2_enc_result.value - prev_enc2);
 
-  prev_enc1 = last_enc1_;
-  prev_enc2 = last_enc2_;
+  prev_enc1 = roboclaw_state_.m1_enc_result.value;
+  prev_enc2 = roboclaw_state_.m2_enc_result.value;
 
   double delta_left = (delta_enc1 * M_PI * wheel_radius_ * 2.0f) / encoder_counts_per_revolution_;
   double delta_right = (delta_enc2 * M_PI * wheel_radius_ * 2.0f) / encoder_counts_per_revolution_;
@@ -459,8 +442,10 @@ void RoboClawDriverNode::publish_joint_states() {
   joint_msg.name = {"left_wheel_joint", "right_wheel_joint"};
 
   // Convert encoder counts to radians
-  double left_angle = (2.0 * M_PI * last_enc1_) / encoder_counts_per_revolution_;
-  double right_angle = (2.0 * M_PI * last_enc2_) / encoder_counts_per_revolution_;
+  double left_angle =
+      (2.0 * M_PI * roboclaw_state_.m1_enc_result.value) / encoder_counts_per_revolution_;
+  double right_angle =
+      (2.0 * M_PI * roboclaw_state_.m2_enc_result.value) / encoder_counts_per_revolution_;
 
   joint_msg.position = {left_angle, right_angle};
 
@@ -530,7 +515,6 @@ void RoboClawDriverNode::declare_parameters() {
   this->declare_parameter("accel", 3000);
   this->declare_parameter("base_frame", "base_link");
   this->declare_parameter("baud_rate", 230400);  // Match config file default
-  this->declare_parameter("cmd_vel_timeout", 1.0);
   this->declare_parameter("device_name",
                           "/dev/ttyAMA0");  // Match config file default
   this->declare_parameter("device_timeout", 100);
@@ -553,7 +537,6 @@ void RoboClawDriverNode::declare_parameters() {
                           0.3);  // Match config file default
   this->declare_parameter("max_m1_current", 0.0);
   this->declare_parameter("max_m2_current", 0.0);
-  this->declare_parameter("max_retries", 3);
   this->declare_parameter("max_seconds_uncommanded_travel",
                           0.2);  // Match config file default
   this->declare_parameter("odom_frame", "odom");
@@ -576,7 +559,6 @@ void RoboClawDriverNode::load_parameters() {
   accel_ = this->get_parameter_or("accel", 3000);
   base_frame_ = this->get_parameter_or("base_frame", std::string("base_link"));
   baud_rate_ = this->get_parameter_or("baud_rate", 230400);
-  cmd_vel_timeout_ = this->get_parameter_or("cmd_vel_timeout", 1.0);
   device_name_ = this->get_parameter_or("device_name", std::string("/dev/ttyAMA0"));
   device_timeout_ = this->get_parameter_or("device_timeout", 100);
   do_debug_ = this->get_parameter_or("do_debug", false);
@@ -595,7 +577,6 @@ void RoboClawDriverNode::load_parameters() {
   max_linear_velocity_ = this->get_parameter_or("max_linear_velocity", 0.3);
   max_m1_current_ = this->get_parameter_or("max_m1_current", 0.0);
   max_m2_current_ = this->get_parameter_or("max_m2_current", 0.0);
-  max_retries_ = this->get_parameter_or("max_retries", 3);
   max_seconds_uncommanded_travel_ = this->get_parameter_or("max_seconds_uncommanded_travel", 0.2);
   odom_frame_ = this->get_parameter_or("odom_frame", std::string("odom"));
   odometry_rate_ = this->get_parameter_or("odometry_rate", 67.0);
@@ -619,7 +600,6 @@ void RoboClawDriverNode::log_parameters() {
     RCUTILS_LOG_INFO("  device_name: %s", device_name_.c_str());
     RCUTILS_LOG_INFO("  baud_rate: %d", baud_rate_);
     RCUTILS_LOG_INFO("  device_timeout: %d ms", device_timeout_);
-    RCUTILS_LOG_INFO("  max_retries: %d", max_retries_);
 
     // Physical parameters
     RCUTILS_LOG_INFO("Robot Physical:");
@@ -633,7 +613,6 @@ void RoboClawDriverNode::log_parameters() {
     RCUTILS_LOG_INFO("  max_linear_velocity: %.3f m/s", max_linear_velocity_);
     RCUTILS_LOG_INFO("  max_angular_velocity: %.3f rad/s", max_angular_velocity_);
     RCUTILS_LOG_INFO("  max_seconds_uncommanded_travel: %.3f s", max_seconds_uncommanded_travel_);
-    RCUTILS_LOG_INFO("  cmd_vel_timeout: %.3f s", cmd_vel_timeout_);
     RCUTILS_LOG_INFO("  max_m1_current: %.3f A", max_m1_current_);
     RCUTILS_LOG_INFO("  max_m2_current: %.3f A", max_m2_current_);
 

@@ -30,8 +30,7 @@ class RoboClawDriverNode : public rclcpp::Node {
   void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg);
 
   // Error decoding
-  void decodeErrorStatus(uint32_t error_status, char* buffer,
-                         size_t size) const;
+  void decodeErrorStatus(uint32_t error_status, char* buffer, size_t size) const;
 
   // Core functionality
   bool initialize_roboclaw();
@@ -41,8 +40,7 @@ class RoboClawDriverNode : public rclcpp::Node {
   void publish_joint_states();
   void publish_status();
   void calculate_odometry();
-  bool get_fresh_encoders(RoboClaw::EncodeResult& enc1,
-                          RoboClaw::EncodeResult& enc2);
+  bool get_fresh_encoders(RoboClaw::EncodeResult& enc1, RoboClaw::EncodeResult& enc2);
 
   // Parameter management
   void declare_parameters();
@@ -50,8 +48,8 @@ class RoboClawDriverNode : public rclcpp::Node {
   void log_parameters();
 
   // Utility functions
-  void convert_twist_to_motor_speeds(const geometry_msgs::msg::Twist& twist,
-                                     int32_t& left_speed, int32_t& right_speed);
+  void convert_twist_to_motor_speeds(const geometry_msgs::msg::Twist& twist, int32_t& left_speed,
+                                     int32_t& right_speed);
   double normalize_angle(double angle);
 
   // RoboClaw interface
@@ -70,7 +68,6 @@ class RoboClawDriverNode : public rclcpp::Node {
   std::string device_name_;
   int32_t baud_rate_;
   int device_timeout_;
-  int max_retries_;
 
   // Publishing rates
   double odometry_rate_;
@@ -104,9 +101,6 @@ class RoboClawDriverNode : public rclcpp::Node {
   uint32_t m2_qpps_;
   uint32_t accel_;
 
-  // Safety settings
-  double cmd_vel_timeout_;
-
   // Publishing control
   bool publish_odom_;
   bool publish_tf_;
@@ -124,25 +118,14 @@ class RoboClawDriverNode : public rclcpp::Node {
     rclcpp::Time timestamp{0};
   } last_cmd_vel_;
 
-  // std::atomic<bool> cmd_vel_received_;
-  // geometry_msgs::msg::Twist current_cmd_vel_;
-  // rclcpp::Time last_cmd_vel_time_;
-  // std::mutex cmd_vel_mutex_;  // Odometry state
+  // Odometry state
   double x_, y_, theta_;
   double linear_velocity_, angular_velocity_;
-  uint32_t last_enc1_, last_enc2_;
   bool first_encoder_reading_;
   rclcpp::Time last_odom_time_;
 
   // Status reading state machine
-  enum StatusReadState {
-    READ_BATTERY,
-    READ_TEMPERATURES,
-    READ_CURRENTS,
-    READ_ERROR,
-    READ_SPEEDS,
-    READ_BUFFERS
-  };
+  enum StatusReadState { READ_BATTERY, READ_TEMPERATURES, READ_CURRENTS, READ_ERROR, READ_SPEEDS };
   StatusReadState current_status_state_;
 
   // Timing variables
@@ -152,10 +135,6 @@ class RoboClawDriverNode : public rclcpp::Node {
 
   // Motor command variables
   bool motors_initialized_;
-
-  // Encoder management
-  bool encoder_init_done_;
-  static constexpr uint32_t MAX_ENCODER_RETRIES = 5;
 
   struct RoboclawState {
     uint32_t error_status{0};
@@ -168,10 +147,6 @@ class RoboClawDriverNode : public rclcpp::Node {
     RoboClaw::TMotorCurrents motorCurrents;
     float temperature1{0.0};
     float temperature2{0.0};
-    // int16_t m1_pwm;
-    // int16_t m2_pwm;
-    // uint16_t m1_buffer;
-    // uint16_t m2_buffer;
   } roboclaw_state_;
 
   // Constants

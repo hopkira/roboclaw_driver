@@ -193,16 +193,15 @@ class RoboClaw {
     WARN_TEMP2 = 0x00200000,          ///< Secondary temperature warning
     WARN_S4 = 0x00400000,             ///< S4 signal warning
     WARN_S5 = 0x00800000,             ///< S5 signal warning
-    WARN_CAN = 0x10000000,   ///< CAN communication warning (MCP models only)
-    WARN_BOOT = 0x20000000,  ///< Boot mode warning
-    WARN_OVERREGENM1 = 0x40000000,  ///< Motor 1 over-regeneration warning
-    WARN_OVERREGENM2 = 0x80000000   ///< Motor 2 over-regeneration warning
+    WARN_CAN = 0x10000000,            ///< CAN communication warning (MCP models only)
+    WARN_BOOT = 0x20000000,           ///< Boot mode warning
+    WARN_OVERREGENM1 = 0x40000000,    ///< Motor 1 over-regeneration warning
+    WARN_OVERREGENM2 = 0x80000000     ///< Motor 2 over-regeneration warning
   };
 
   // public methods
-  RoboClaw(float m1MaxCurrent, float m2MaxCurrent, std::string device_name,
-           uint8_t device_port, uint32_t baud_rate, bool do_debug = false,
-           bool do_low_level_debug = false);
+  RoboClaw(float m1MaxCurrent, float m2MaxCurrent, std::string device_name, uint8_t device_port,
+           uint32_t baud_rate, bool do_debug = false, bool do_low_level_debug = false);
 
   ~RoboClaw();
 
@@ -395,7 +394,7 @@ class RoboClaw {
   float maxM1Current_;       // Maximum allowed M1 current.
   float maxM2Current_;       // Maximum allowed M2 current.
   int motorAlarms_;          // Motors alarms. Bit-wise OR of contributors.
-  int portAddress_;  // Port number of RoboClaw device under control command.
+  int portAddress_;          // Port number of RoboClaw device under control command.
 
   // void crc_clear();
   // void crc_update(uint8_t data);
@@ -410,16 +409,13 @@ class RoboClaw {
   class DebugLog {
    public:
     DebugLog(RoboClaw *roboclaw)
-        : roboclaw_(roboclaw),
-          next_read_log_index_(0),
-          next_write_log_index_(0) {}
+        : roboclaw_(roboclaw), next_read_log_index_(0), next_write_log_index_(0) {}
     ~DebugLog() {}
 
     void appendToReadLog(const char *format, va_list args) {
       if (roboclaw_->do_debug_) {
-        int written =
-            vsnprintf(&read_log_[next_read_log_index_],
-                      sizeof(read_log_) - next_read_log_index_, format, args);
+        int written = vsnprintf(&read_log_[next_read_log_index_],
+                                sizeof(read_log_) - next_read_log_index_, format, args);
         if (written > 0) {
           next_read_log_index_ += written;
         }
@@ -428,9 +424,8 @@ class RoboClaw {
 
     void appendToWriteLog(const char *format, va_list args) {
       if (roboclaw_->do_debug_) {
-        int written =
-            vsnprintf(&write_log_[next_write_log_index_],
-                      sizeof(write_log_) - next_write_log_index_, format, args);
+        int written = vsnprintf(&write_log_[next_write_log_index_],
+                                sizeof(write_log_) - next_write_log_index_, format, args);
         if (written > 0) {
           next_write_log_index_ += written;
         }
@@ -439,8 +434,7 @@ class RoboClaw {
 
     void showLog() {
       if (roboclaw_->do_debug_) {
-        RCUTILS_LOG_INFO("[RoboClaw::DebugLog] %s, READ: %s", write_log_,
-                         read_log_);
+        RCUTILS_LOG_INFO("[RoboClaw::DebugLog] %s, READ: %s", write_log_, read_log_);
       }
 
       read_log_[0] = '\0';
@@ -459,14 +453,12 @@ class RoboClaw {
 
   friend class Cmd;
   friend class CmdDoBufferedM1M2DriveSpeedAccelDistance;
-  friend class CmdReadBufferLength;
   friend class CmdReadEncoderSpeed;
   friend class CmdReadEncoder;
   friend class CmdReadFirmwareVersion;
   friend class CmdReadLogicBatteryVoltage;
   friend class CmdReadMainBatteryVoltage;
   friend class CmdReadMotorCurrents;
-  friend class CmdReadMotorVelocityPIDQ;
   friend class CmdReadStatus;
   friend class CmdReadTemperature;
   friend class CmdSetEncoderValue;
