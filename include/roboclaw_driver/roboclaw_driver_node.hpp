@@ -7,7 +7,7 @@
 #include <chrono>
 #include <geometry_msgs/msg/twist.hpp>
 #include <memory>
-// #include <mutex>
+#include <mutex>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>

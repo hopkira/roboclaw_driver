@@ -1,8 +1,11 @@
 #include "roboclaw_driver/roboclaw_driver_node.hpp"
 
+#include <rcutils/logging_macros.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <iomanip>
 #include <rcl_interfaces/msg/parameter_descriptor.hpp>
 #include <sstream>
@@ -52,12 +55,10 @@ RoboClawDriverNode::RoboClawDriverNode()
   RCUTILS_LOG_INFO("baud_rate: %d", baud_rate_);
   RCUTILS_LOG_INFO("cmd_vel_timeout: %.1f", cmd_vel_timeout_);
   RCUTILS_LOG_INFO("do_debug: %s", do_debug_ ? "true" : "false");
-  RCUTILS_LOG_INFO("do_low_level_debug: %s",
-                   do_low_level_debug_ ? "true" : "false");
+  RCUTILS_LOG_INFO("do_low_level_debug: %s", do_low_level_debug_ ? "true" : "false");
   RCUTILS_LOG_INFO("device_name: %s", device_name_.c_str());
   RCUTILS_LOG_INFO("device_timeout: %d", device_timeout_);
-  RCUTILS_LOG_INFO("encoder_counts_per_revolution: %d",
-                   encoder_counts_per_revolution_);
+  RCUTILS_LOG_INFO("encoder_counts_per_revolution: %d", encoder_counts_per_revolution_);
   RCUTILS_LOG_INFO("joint_states_rate: %.1f", joint_states_rate_);
   RCUTILS_LOG_INFO("m1_d: %.6f", m1_d_);
   RCUTILS_LOG_INFO("m1_i: %.6f", m1_i_);
@@ -72,12 +73,10 @@ RoboClawDriverNode::RoboClawDriverNode()
   RCUTILS_LOG_INFO("max_m1_current: %.1f", max_m1_current_);
   RCUTILS_LOG_INFO("max_m2_current: %.1f", max_m2_current_);
   RCUTILS_LOG_INFO("max_retries: %d", max_retries_);
-  RCUTILS_LOG_INFO("max_seconds_uncommanded_travel: %.3f",
-                   max_seconds_uncommanded_travel_);
+  RCUTILS_LOG_INFO("max_seconds_uncommanded_travel: %.3f", max_seconds_uncommanded_travel_);
   RCUTILS_LOG_INFO("odom_frame: %s", odom_frame_.c_str());
   RCUTILS_LOG_INFO("odometry_rate: %.1f", odometry_rate_);
-  RCUTILS_LOG_INFO("publish_joint_states: %s",
-                   publish_joint_states_ ? "true" : "false");
+  RCUTILS_LOG_INFO("publish_joint_states: %s", publish_joint_states_ ? "true" : "false");
   RCUTILS_LOG_INFO("publish_odom: %s", publish_odom_ ? "true" : "false");
   RCUTILS_LOG_INFO("publish_tf: %s", publish_tf_ ? "true" : "false");
   RCUTILS_LOG_INFO("status_rate: %.1f", status_rate_);
@@ -86,9 +85,8 @@ RoboClawDriverNode::RoboClawDriverNode()
   RCUTILS_LOG_INFO("===================================");
 
   // Initialize RoboClaw
-  roboclaw_ = std::make_unique<RoboClaw>(max_m1_current_, max_m2_current_,
-                                         device_name_, address_, baud_rate_,
-                                         do_debug_, do_low_level_debug_);
+  roboclaw_ = std::make_unique<RoboClaw>(max_m1_current_, max_m2_current_, device_name_, address_,
+                                         baud_rate_, do_debug_, do_low_level_debug_);
 
   if (!initialize_roboclaw()) {
     RCUTILS_LOG_ERROR("Failed to initialize RoboClaw driver");
@@ -97,9 +95,7 @@ RoboClawDriverNode::RoboClawDriverNode()
 
   // Initialize ROS2 interface
   cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
-      "cmd_vel", 1,
-      std::bind(&RoboClawDriverNode::cmd_vel_callback, this,
-                std::placeholders::_1));
+      "cmd_vel", 1, std::bind(&RoboClawDriverNode::cmd_vel_callback, this, std::placeholders::_1));
 
   // Create publishers based on configuration
   if (publish_odom_) {
@@ -117,12 +113,10 @@ RoboClawDriverNode::RoboClawDriverNode()
   }
 
   if (publish_joint_states_) {
-    joint_states_pub_ = this->create_publisher<sensor_msgs::msg::JointState>(
-        "joint_states", 10);
+    joint_states_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("joint_states", 10);
   }
 
-  status_pub_ =
-      this->create_publisher<std_msgs::msg::String>("roboclaw_status", 10);
+  status_pub_ = this->create_publisher<std_msgs::msg::String>("roboclaw_status", 10);
 
   // Initialize timing
   auto now = this->get_clock()->now();
@@ -133,9 +127,9 @@ RoboClawDriverNode::RoboClawDriverNode()
 
   // Start main loop timer
   auto timer_period = std::chrono::duration<double>(1.0 / MAIN_LOOP_FREQUENCY);
-  main_timer_ = this->create_wall_timer(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(timer_period),
-      std::bind(&RoboClawDriverNode::main_loop, this));
+  main_timer_ =
+      this->create_wall_timer(std::chrono::duration_cast<std::chrono::nanoseconds>(timer_period),
+                              std::bind(&RoboClawDriverNode::main_loop, this));
 
   RCUTILS_LOG_INFO("RoboClaw driver node initialized successfully");
 }
@@ -148,19 +142,16 @@ RoboClawDriverNode::~RoboClawDriverNode() {
 }
 
 bool RoboClawDriverNode::initialize_roboclaw() {
-  RCUTILS_LOG_INFO("Connected to RoboClaw on %s at %d baud",
-                   device_name_.c_str(), baud_rate_);
+  RCUTILS_LOG_INFO("Connected to RoboClaw on %s at %d baud", device_name_.c_str(), baud_rate_);
   std::string version;
   CmdReadFirmwareVersion cmd(*roboclaw_, version);
   cmd.execute();
 
   RCUTILS_LOG_INFO("RoboClaw Firmware Version: %s", version.c_str());
 
-  CmdSetPid command_m1_pid(*roboclaw_, RoboClaw::kM1, m1_p_, m1_i_, m1_d_,
-                           m1_qpps_);
+  CmdSetPid command_m1_pid(*roboclaw_, RoboClaw::kM1, m1_p_, m1_i_, m1_d_, m1_qpps_);
   command_m1_pid.execute();
-  CmdSetPid command_m2_pid(*roboclaw_, RoboClaw::kM2, m2_p_, m2_i_, m2_d_,
-                           m2_qpps_);
+  CmdSetPid command_m2_pid(*roboclaw_, RoboClaw::kM2, m2_p_, m2_i_, m2_d_, m2_qpps_);
   command_m2_pid.execute();
 
   CmdSetEncoderValue m1(*roboclaw_, RoboClaw::kM1, 0);
@@ -183,24 +174,22 @@ void RoboClawDriverNode::main_loop() {
   // Read sensor data and update odometry
   read_sensors();
 
-  // calculate_odometry();
+  // Publishing based on time intervals
+  if (publish_odom_) {
+    double odometry_dt = (now - last_odometry_publish_).seconds();
+    if (odometry_dt >= (1.0 / odometry_rate_)) {
+      publish_odometry();
+      last_odometry_publish_ = now;
+    }
+  }
 
-  // // Publishing based on time intervals
-  // if (publish_odom_) {
-  //   double odometry_dt = (now - last_odometry_publish_).seconds();
-  //   if (odometry_dt >= (1.0 / odometry_rate_)) {
-  //     publish_odometry();
-  //     last_odometry_publish_ = now;
-  //   }
-  // }
-
-  // if (publish_joint_states_) {
-  //   double joint_dt = (now - last_joint_states_publish_).seconds();
-  //   if (joint_dt >= (1.0 / joint_states_rate_)) {
-  //     publish_joint_states();
-  //     last_joint_states_publish_ = now;
-  //   }
-  // }
+  if (publish_joint_states_) {
+    double joint_dt = (now - last_joint_states_publish_).seconds();
+    if (joint_dt >= (1.0 / joint_states_rate_)) {
+      publish_joint_states();
+      last_joint_states_publish_ = now;
+    }
+  }
 
   double status_dt = (now - last_status_publish_).seconds();
   if (status_dt >= (1.0 / status_rate_)) {
@@ -209,11 +198,7 @@ void RoboClawDriverNode::main_loop() {
   }
 }
 
-#define SetDWORDval(arg) \
-  (uint8_t)(arg >> 24), (uint8_t)(arg >> 16), (uint8_t)(arg >> 8), (uint8_t)arg
-
-void RoboClawDriverNode::cmd_vel_callback(
-    const geometry_msgs::msg::Twist::SharedPtr msg) {
+void RoboClawDriverNode::cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg) {
   static rclcpp::Time time_of_last_cmd_vel = this->get_clock()->now();
 
   std::lock_guard<std::mutex> lock(last_cmd_vel_.mutex);  // ###
@@ -237,35 +222,31 @@ void RoboClawDriverNode::handle_cmd_vel() {
 
   int32_t target_left_speed;
   int32_t target_right_speed;
-  convert_twist_to_motor_speeds(last_cmd_vel_.cmd_vel, target_left_speed,
-                                target_right_speed);
+  convert_twist_to_motor_speeds(last_cmd_vel_.cmd_vel, target_left_speed, target_right_speed);
 
   const int32_t m1_max_distance_quad_pulses =
       (int32_t)fabs(target_left_speed * max_seconds_uncommanded_travel_);
   const int32_t m2_max_distance_quad_pulses =
       (int32_t)fabs(target_right_speed * max_seconds_uncommanded_travel_);
-  CmdDoBufferedM1M2DriveSpeedAccelDistance cmd(
-      *roboclaw_, accel_, target_left_speed, m1_max_distance_quad_pulses,
-      target_right_speed, m2_max_distance_quad_pulses);
+  CmdDoBufferedM1M2DriveSpeedAccelDistance cmd(*roboclaw_, accel_, target_left_speed,
+                                               m1_max_distance_quad_pulses, target_right_speed,
+                                               m2_max_distance_quad_pulses);
   cmd.execute();
   if (do_debug_) {
     rclcpp::Time now = this->get_clock()->now();
     double delta_time = (now - time_of_last_cmd_vel).seconds();
     double lag_time = (now - last_cmd_vel_.timestamp).seconds();
     time_of_last_cmd_vel = last_cmd_vel_.timestamp;
-    RCUTILS_LOG_INFO("delta_time=%.3f, lag_time=%.3f, sequence=%u", delta_time,
-                     lag_time, last_cmd_vel_.sequence_number);
+    RCUTILS_LOG_INFO("delta_time=%.3f, lag_time=%.3f, sequence=%u", delta_time, lag_time,
+                     last_cmd_vel_.sequence_number);
   }
 }
 
-void RoboClawDriverNode::convert_twist_to_motor_speeds(
-    const geometry_msgs::msg::Twist& twist, int32_t& left_speed,
-    int32_t& right_speed) {
+void RoboClawDriverNode::convert_twist_to_motor_speeds(const geometry_msgs::msg::Twist& twist,
+                                                       int32_t& left_speed, int32_t& right_speed) {
   // Differential drive kinematics
-  double linear_vel =
-      std::clamp(twist.linear.x, -max_linear_velocity_, max_linear_velocity_);
-  double angular_vel = std::clamp(twist.angular.z, -max_angular_velocity_,
-                                  max_angular_velocity_);
+  double linear_vel = std::clamp(twist.linear.x, -max_linear_velocity_, max_linear_velocity_);
+  double angular_vel = std::clamp(twist.angular.z, -max_angular_velocity_, max_angular_velocity_);
 
   // Calculate wheel velocities in m/s
   double left_wheel_vel = linear_vel - (angular_vel * wheel_separation_ / 2.0);
@@ -273,10 +254,10 @@ void RoboClawDriverNode::convert_twist_to_motor_speeds(
 
   // Convert to encoder counts per second (QPPS - Quadrature Pulses Per
   // Second)
-  double left_qpps = (left_wheel_vel / (2.0 * M_PI * wheel_radius_)) *
-                     encoder_counts_per_revolution_;
-  double right_qpps = (right_wheel_vel / (2.0 * M_PI * wheel_radius_)) *
-                      encoder_counts_per_revolution_;
+  double left_qpps =
+      (left_wheel_vel / (2.0 * M_PI * wheel_radius_)) * encoder_counts_per_revolution_;
+  double right_qpps =
+      (right_wheel_vel / (2.0 * M_PI * wheel_radius_)) * encoder_counts_per_revolution_;
 
   left_speed = static_cast<int32_t>(left_qpps);
   right_speed = static_cast<int32_t>(right_qpps);
@@ -298,8 +279,7 @@ bool RoboClawDriverNode::get_fresh_encoders(RoboClaw::EncodeResult& enc1,
 
 void RoboClawDriverNode::read_sensors() {
   // Get fresh encoder readings
-  get_fresh_encoders(roboclaw_state_.m1_enc_result,
-                     roboclaw_state_.m2_enc_result);
+  get_fresh_encoders(roboclaw_state_.m1_enc_result, roboclaw_state_.m2_enc_result);
 
   // Spread status readings across cycles to avoid overwhelming serial
   // communication This follows the TeensyV2 pattern of state machine for
@@ -310,11 +290,10 @@ void RoboClawDriverNode::read_sensors() {
   if ((now - last_status_time).seconds() >= 0.1) {  // 10Hz status reading
     switch (current_status_state_) {
       case READ_BATTERY: {
-        CmdReadLogicBatteryVoltage cmd_logic_batt(
-            *roboclaw_, roboclaw_state_.logic_battery_voltage);
+        CmdReadLogicBatteryVoltage cmd_logic_batt(*roboclaw_,
+                                                  roboclaw_state_.logic_battery_voltage);
         cmd_logic_batt.execute();
-        CmdReadMainBatteryVoltage cmd_main_batt(
-            *roboclaw_, roboclaw_state_.main_battery_voltage);
+        CmdReadMainBatteryVoltage cmd_main_batt(*roboclaw_, roboclaw_state_.main_battery_voltage);
         cmd_main_batt.execute();
       }
 
@@ -335,8 +314,7 @@ void RoboClawDriverNode::read_sensors() {
       case READ_CURRENTS:
         // Read motor currents
         {
-          CmdReadMotorCurrents cmd_currents(*roboclaw_,
-                                            roboclaw_state_.motorCurrents);
+          CmdReadMotorCurrents cmd_currents(*roboclaw_, roboclaw_state_.motorCurrents);
           cmd_currents.execute();
         }
         break;
@@ -349,11 +327,9 @@ void RoboClawDriverNode::read_sensors() {
       break;
 
       case READ_SPEEDS: {
-        CmdReadEncoderSpeed cmd_speed_m1(*roboclaw_, RoboClaw::kM1,
-                                         roboclaw_state_.m1_speed);
+        CmdReadEncoderSpeed cmd_speed_m1(*roboclaw_, RoboClaw::kM1, roboclaw_state_.m1_speed);
         cmd_speed_m1.execute();
-        CmdReadEncoderSpeed cmd_speed_m2(*roboclaw_, RoboClaw::kM2,
-                                         roboclaw_state_.m2_speed);
+        CmdReadEncoderSpeed cmd_speed_m2(*roboclaw_, RoboClaw::kM2, roboclaw_state_.m2_speed);
         cmd_speed_m2.execute();
       }
 
@@ -365,70 +341,65 @@ void RoboClawDriverNode::read_sensors() {
     }
 
     // Advance to next state
-    current_status_state_ =
-        static_cast<StatusReadState>((current_status_state_ + 1) % 6);
+    current_status_state_ = static_cast<StatusReadState>((current_status_state_ + 1) % 6);
     last_status_time = now;
   }
 }
 
 void RoboClawDriverNode::calculate_odometry() {
-  // if (!encoder_init_done_) {
-  //   return;
-  // }
+  if (!encoder_init_done_) {
+    return;
+  }
 
-  // auto now = this->get_clock()->now();
+  auto now = this->get_clock()->now();
 
-  // if (first_encoder_reading_) {
-  //   last_odom_time_ = now;
-  //   first_encoder_reading_ = false;
-  //   return;
-  // }
+  if (first_encoder_reading_) {
+    last_odom_time_ = now;
+    first_encoder_reading_ = false;
+    return;
+  }
 
-  // double dt = (now - last_odom_time_).seconds();
-  // if (dt < 0.01) {  // Skip if time delta too small
-  //   return;
-  // }
+  double dt = (now - last_odom_time_).seconds();
+  if (dt < 0.01) {  // Skip if time delta too small
+    return;
+  }
 
-  // // This is a simplified odometry calculation - in a real implementation
-  // you'd
-  // // want to track encoder differences between readings, not absolute
-  // values static uint32_t prev_enc1 = last_enc1_; static uint32_t prev_enc2
-  // = last_enc2_;
+  // This is a simplified odometry calculation - in a real implementation you'd
+  // want to track encoder differences between readings, not absolute values
+  static uint32_t prev_enc1 = last_enc1_;
+  static uint32_t prev_enc2 = last_enc2_;
 
-  // int32_t delta_enc1 = static_cast<int32_t>(last_enc1_ - prev_enc1);
-  // int32_t delta_enc2 = static_cast<int32_t>(last_enc2_ - prev_enc2);
+  int32_t delta_enc1 = static_cast<int32_t>(last_enc1_ - prev_enc1);
+  int32_t delta_enc2 = static_cast<int32_t>(last_enc2_ - prev_enc2);
 
-  // prev_enc1 = last_enc1_;
-  // prev_enc2 = last_enc2_;
+  prev_enc1 = last_enc1_;
+  prev_enc2 = last_enc2_;
 
-  // double delta_left =
-  //     (delta_enc1 * M_PI * wheel_diameter_) /
-  //     encoder_counts_per_revolution_;
-  // double delta_right =
-  //     (delta_enc2 * M_PI * wheel_diameter_) /
-  //     encoder_counts_per_revolution_;
+  double delta_left = (delta_enc1 * M_PI * wheel_radius_ * 2.0f) / encoder_counts_per_revolution_;
+  double delta_right = (delta_enc2 * M_PI * wheel_radius_ * 2.0f) / encoder_counts_per_revolution_;
 
-  // // Calculate robot motion
-  // double delta_distance = (delta_left + delta_right) / 2.0;
-  // double delta_theta = (delta_right - delta_left) / wheel_separation_;
+  // Calculate robot motion
+  double delta_distance = (delta_left + delta_right) / 2.0;
+  double delta_theta = (delta_right - delta_left) / wheel_separation_;
 
-  // // Update pose
-  // double delta_x = delta_distance * cos(theta_ + delta_theta / 2.0);
-  // double delta_y = delta_distance * sin(theta_ + delta_theta / 2.0);
+  // Update pose
+  double delta_x = delta_distance * cos(theta_ + delta_theta / 2.0);
+  double delta_y = delta_distance * sin(theta_ + delta_theta / 2.0);
 
-  // x_ += delta_x;
-  // y_ += delta_y;
-  // theta_ += delta_theta;
-  // theta_ = normalize_angle(theta_);
+  x_ += delta_x;
+  y_ += delta_y;
+  theta_ += delta_theta;
+  theta_ = normalize_angle(theta_);
 
-  // // Calculate velocities
-  // linear_velocity_ = delta_distance / dt;
-  // angular_velocity_ = delta_theta / dt;
+  // Calculate velocities
+  linear_velocity_ = delta_distance / dt;
+  angular_velocity_ = delta_theta / dt;
 
-  // last_odom_time_ = now;
+  last_odom_time_ = now;
 }
 
 void RoboClawDriverNode::publish_odometry() {
+  calculate_odometry();
   auto odom_msg = nav_msgs::msg::Odometry();
   odom_msg.header.stamp = this->get_clock()->now();
   odom_msg.header.frame_id = odom_frame_;
@@ -480,33 +451,28 @@ void RoboClawDriverNode::publish_odometry() {
 }
 
 void RoboClawDriverNode::publish_joint_states() {
-  // if (!joint_states_pub_) return;
+  if (!joint_states_pub_) return;
 
-  // auto joint_msg = sensor_msgs::msg::JointState();
-  // joint_msg.header.stamp = this->get_clock()->now();
+  auto joint_msg = sensor_msgs::msg::JointState();
+  joint_msg.header.stamp = this->get_clock()->now();
 
-  // joint_msg.name = {"left_wheel_joint", "right_wheel_joint"};
+  joint_msg.name = {"left_wheel_joint", "right_wheel_joint"};
 
-  // // Convert encoder counts to radians
-  // double left_angle =
-  //     (2.0 * M_PI * last_enc1_) / encoder_counts_per_revolution_;
-  // double right_angle =
-  //     (2.0 * M_PI * last_enc2_) / encoder_counts_per_revolution_;
+  // Convert encoder counts to radians
+  double left_angle = (2.0 * M_PI * last_enc1_) / encoder_counts_per_revolution_;
+  double right_angle = (2.0 * M_PI * last_enc2_) / encoder_counts_per_revolution_;
 
-  // joint_msg.position = {left_angle, right_angle};
+  joint_msg.position = {left_angle, right_angle};
 
-  // // Wheel velocities in rad/s
-  // double wheel_radius = wheel_diameter_ / 2.0;
-  // double left_vel =
-  //     (linear_velocity_ - angular_velocity_ * wheel_separation_ / 2.0) /
-  //     wheel_radius;
-  // double right_vel =
-  //     (linear_velocity_ + angular_velocity_ * wheel_separation_ / 2.0) /
-  //     wheel_radius;
+  // Wheel velocities in rad/s
+  double left_vel =
+      (linear_velocity_ - angular_velocity_ * wheel_separation_ / 2.0) / wheel_radius_;
+  double right_vel =
+      (linear_velocity_ + angular_velocity_ * wheel_separation_ / 2.0) / wheel_radius_;
 
-  // joint_msg.velocity = {left_vel, right_vel};
+  joint_msg.velocity = {left_vel, right_vel};
 
-  // joint_states_pub_->publish(joint_msg);
+  joint_states_pub_->publish(joint_msg);
 }
 
 void RoboClawDriverNode::publish_status() {
@@ -516,8 +482,8 @@ void RoboClawDriverNode::publish_status() {
 
   // Create JSON string with RoboClaw state data
   std::ostringstream error_status_hex;
-  error_status_hex << std::setw(8) << std::setfill('0') << std::hex
-                   << std::uppercase << roboclaw_state_.error_status;
+  error_status_hex << std::setw(8) << std::setfill('0') << std::hex << std::uppercase
+                   << roboclaw_state_.error_status;
 
   // Get current ROS2 time as seconds.nanoseconds (like header.stamp)
   auto stamp = this->get_clock()->now();
@@ -525,33 +491,26 @@ void RoboClawDriverNode::publish_status() {
   // Format timestamp as "seconds.nanoseconds" (e.g., "1758159135.361360569")
   std::ostringstream timestamp_stream;
   timestamp_stream << std::fixed << std::setprecision(9)
-                   << stamp.seconds() +
-                          (stamp.nanoseconds() % 1000000000) / 1e9;
+                   << stamp.seconds() + (stamp.nanoseconds() % 1000000000) / 1e9;
 
   std::string json_status =
-      "{\"timestamp\":\"" + timestamp_stream.str() + "\",\"m1_current\":" +
-      std::to_string(roboclaw_state_.motorCurrents.m1Current) +
-      ",\"m2_current\":" +
-      std::to_string(roboclaw_state_.motorCurrents.m2Current) +
+      "{\"timestamp\":\"" + timestamp_stream.str() +
+      "\",\"m1_current\":" + std::to_string(roboclaw_state_.motorCurrents.m1Current) +
+      ",\"m2_current\":" + std::to_string(roboclaw_state_.motorCurrents.m2Current) +
       ",\"m1_speed\":" + std::to_string(roboclaw_state_.m1_speed) +
-      ",\"m1_enc_value\":" +
-      std::to_string(roboclaw_state_.m1_enc_result.value) +
+      ",\"m1_enc_value\":" + std::to_string(roboclaw_state_.m1_enc_result.value) +
       ",\"m1_enc_status\":" +
       std::to_string(static_cast<int>(roboclaw_state_.m1_enc_result.status)) +
       ",\"m2_speed\":" + std::to_string(roboclaw_state_.m2_speed) +
-      ",\"m2_enc_value\":" +
-      std::to_string(roboclaw_state_.m2_enc_result.value) +
+      ",\"m2_enc_value\":" + std::to_string(roboclaw_state_.m2_enc_result.value) +
       ",\"m2_enc_status\":" +
       std::to_string(static_cast<int>(roboclaw_state_.m2_enc_result.status)) +
-      ",\"logic_battery\":" +
-      std::to_string(roboclaw_state_.logic_battery_voltage) +
-      ",\"main_battery\":" +
-      std::to_string(roboclaw_state_.main_battery_voltage) +
+      ",\"logic_battery\":" + std::to_string(roboclaw_state_.logic_battery_voltage) +
+      ",\"main_battery\":" + std::to_string(roboclaw_state_.main_battery_voltage) +
       ", \"temperature1\":" + std::to_string(roboclaw_state_.temperature1) +
       ", \"temperature2\":" + std::to_string(roboclaw_state_.temperature2) +
-      ", \"error_status\":\"" + error_status_hex.str() + "\"" +
-      ", \"decoded_error_status\":\"" + std::string(decoded_error_status) +
-      "\"}";
+      ", \"error_status\":\"" + error_status_hex.str() + "\"" + ", \"decoded_error_status\":\"" +
+      std::string(decoded_error_status) + "\"}";
 
   // RCUTILS_LOG_INFO( "RoboClaw Status: %s",
   // json_status.c_str());
@@ -618,13 +577,11 @@ void RoboClawDriverNode::load_parameters() {
   base_frame_ = this->get_parameter_or("base_frame", std::string("base_link"));
   baud_rate_ = this->get_parameter_or("baud_rate", 230400);
   cmd_vel_timeout_ = this->get_parameter_or("cmd_vel_timeout", 1.0);
-  device_name_ =
-      this->get_parameter_or("device_name", std::string("/dev/ttyAMA0"));
+  device_name_ = this->get_parameter_or("device_name", std::string("/dev/ttyAMA0"));
   device_timeout_ = this->get_parameter_or("device_timeout", 100);
   do_debug_ = this->get_parameter_or("do_debug", false);
   do_low_level_debug_ = this->get_parameter_or("do_low_level_debug", false);
-  encoder_counts_per_revolution_ =
-      this->get_parameter_or("encoder_counts_per_revolution", 1000);
+  encoder_counts_per_revolution_ = this->get_parameter_or("encoder_counts_per_revolution", 1000);
   joint_states_rate_ = this->get_parameter_or("joint_states_rate", 30.0);
   m1_d_ = this->get_parameter_or("m1_d", 0.0);
   m1_i_ = this->get_parameter_or("m1_i", 2.43);
@@ -639,8 +596,7 @@ void RoboClawDriverNode::load_parameters() {
   max_m1_current_ = this->get_parameter_or("max_m1_current", 0.0);
   max_m2_current_ = this->get_parameter_or("max_m2_current", 0.0);
   max_retries_ = this->get_parameter_or("max_retries", 3);
-  max_seconds_uncommanded_travel_ =
-      this->get_parameter_or("max_seconds_uncommanded_travel", 0.2);
+  max_seconds_uncommanded_travel_ = this->get_parameter_or("max_seconds_uncommanded_travel", 0.2);
   odom_frame_ = this->get_parameter_or("odom_frame", std::string("odom"));
   odometry_rate_ = this->get_parameter_or("odometry_rate", 67.0);
   publish_joint_states_ = this->get_parameter_or("publish_joint_states", false);
@@ -669,17 +625,14 @@ void RoboClawDriverNode::log_parameters() {
     RCUTILS_LOG_INFO("Robot Physical:");
     RCUTILS_LOG_INFO("  wheel_radius: %.6f m", wheel_radius_);
     RCUTILS_LOG_INFO("  wheel_separation: %.6f m", wheel_separation_);
-    RCUTILS_LOG_INFO("  encoder_counts_per_revolution: %d",
-                     encoder_counts_per_revolution_);
+    RCUTILS_LOG_INFO("  encoder_counts_per_revolution: %d", encoder_counts_per_revolution_);
     RCUTILS_LOG_INFO("  accel: %u quad pulses/s²", accel_);
 
     // Safety parameters
     RCUTILS_LOG_INFO("Safety:");
     RCUTILS_LOG_INFO("  max_linear_velocity: %.3f m/s", max_linear_velocity_);
-    RCUTILS_LOG_INFO("  max_angular_velocity: %.3f rad/s",
-                     max_angular_velocity_);
-    RCUTILS_LOG_INFO("  max_seconds_uncommanded_travel: %.3f s",
-                     max_seconds_uncommanded_travel_);
+    RCUTILS_LOG_INFO("  max_angular_velocity: %.3f rad/s", max_angular_velocity_);
+    RCUTILS_LOG_INFO("  max_seconds_uncommanded_travel: %.3f s", max_seconds_uncommanded_travel_);
     RCUTILS_LOG_INFO("  cmd_vel_timeout: %.3f s", cmd_vel_timeout_);
     RCUTILS_LOG_INFO("  max_m1_current: %.3f A", max_m1_current_);
     RCUTILS_LOG_INFO("  max_m2_current: %.3f A", max_m2_current_);
@@ -701,8 +654,7 @@ void RoboClawDriverNode::log_parameters() {
     RCUTILS_LOG_INFO("Publishing:");
     RCUTILS_LOG_INFO("  publish_odom: %s", publish_odom_ ? "true" : "false");
     RCUTILS_LOG_INFO("  publish_tf: %s", publish_tf_ ? "true" : "false");
-    RCUTILS_LOG_INFO("  publish_joint_states: %s",
-                     publish_joint_states_ ? "true" : "false");
+    RCUTILS_LOG_INFO("  publish_joint_states: %s", publish_joint_states_ ? "true" : "false");
     RCUTILS_LOG_INFO("  odometry_rate: %.1f Hz", odometry_rate_);
     RCUTILS_LOG_INFO("  joint_states_rate: %.1f Hz", joint_states_rate_);
     RCUTILS_LOG_INFO("  status_rate: %.1f Hz", status_rate_);
@@ -715,15 +667,13 @@ void RoboClawDriverNode::log_parameters() {
     // Debug parameters
     RCUTILS_LOG_INFO("Debug:");
     RCUTILS_LOG_INFO("  do_debug: %s", do_debug_ ? "true" : "false");
-    RCUTILS_LOG_INFO("  do_low_level_debug: %s",
-                     do_low_level_debug_ ? "true" : "false");
+    RCUTILS_LOG_INFO("  do_low_level_debug: %s", do_low_level_debug_ ? "true" : "false");
 
     RCUTILS_LOG_INFO("=== End Parameters ===");
   }
 }
 
-void RoboClawDriverNode::decodeErrorStatus(uint32_t error_status, char* buffer,
-                                           size_t size) const {
+void RoboClawDriverNode::decodeErrorStatus(uint32_t error_status, char* buffer, size_t size) const {
   if (error_status == 0) {
     strncpy(buffer, "No errors", size);
     buffer[size - 1] = '\0';
@@ -749,55 +699,41 @@ void RoboClawDriverNode::decodeErrorStatus(uint32_t error_status, char* buffer,
   };
 
   // Check error flags (bits 0-15)
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_ESTOP))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_ESTOP))
     append_error("ERROR_ESTOP");
   if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_TEMP))
     append_error("ERROR_TEMP");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_TEMP2))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_TEMP2))
     append_error("ERROR_TEMP2");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_LBATHIGH))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_LBATHIGH))
     append_error("ERROR_LBATHIGH");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_LBATLOW))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_LBATLOW))
     append_error("ERROR_LBATLOW");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_FAULTM1))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_FAULTM1))
     append_error("ERROR_FAULTM1");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_FAULTM2))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_FAULTM2))
     append_error("ERROR_FAULTM2");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_SPEED1))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_SPEED1))
     append_error("ERROR_SPEED1");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_SPEED2))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_SPEED2))
     append_error("ERROR_SPEED2");
   if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_POS1))
     append_error("ERROR_POS1");
   if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_POS2))
     append_error("ERROR_POS2");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_CURRENTM1))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_CURRENTM1))
     append_error("ERROR_CURRENTM1");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_CURRENTM2))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::ERROR_CURRENTM2))
     append_error("ERROR_CURRENTM2");
 
   // Check warning flags (bits 16-31)
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_OVERCURRENTM1))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_OVERCURRENTM1))
     append_error("WARN_OVERCURRENTM1");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_OVERCURRENTM2))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_OVERCURRENTM2))
     append_error("WARN_OVERCURRENTM2");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_MBATHIGH))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_MBATHIGH))
     append_error("WARN_MBATHIGH");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_MBATLOW))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_MBATLOW))
     append_error("WARN_MBATLOW");
   if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_TEMP))
     append_error("WARN_TEMP");
@@ -811,11 +747,9 @@ void RoboClawDriverNode::decodeErrorStatus(uint32_t error_status, char* buffer,
     append_error("WARN_CAN");
   if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_BOOT))
     append_error("WARN_BOOT");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_OVERREGENM1))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_OVERREGENM1))
     append_error("WARN_OVERREGENM1");
-  if (error_status &
-      static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_OVERREGENM2))
+  if (error_status & static_cast<uint32_t>(RoboClaw::RoboClawError::WARN_OVERREGENM2))
     append_error("WARN_OVERREGENM2");
 
   // Report any unknown bits
