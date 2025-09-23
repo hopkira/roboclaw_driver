@@ -38,9 +38,21 @@ ament_target_dependencies(roboclaw_driver_node
   tf2_geometry_msgs
 )
 
+# Add square test executable
+add_executable(
+  square_runner_test
+  test/square_demo/square_runner.cpp)
+
+ament_target_dependencies(square_runner_test
+  rclcpp
+  geometry_msgs
+  nav_msgs
+  tf2
+  tf2_geometry_msgs)
+
 # Install targets
 install(TARGETS
-  roboclaw_driver_node
+  roboclaw_driver_node square_runner_test
   DESTINATION lib/${PROJECT_NAME}
 )
 

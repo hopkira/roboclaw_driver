@@ -63,7 +63,7 @@ roboclaw_driver:
                                           # Clamps linear velocity commands for safety  
                                           # Start conservative, increase as needed
 
-    max_seconds_uncommanded_travel: 0.2   # Maximum time to allow robot to travel without receiving new commands
+    max_seconds_uncommanded_travel: 0.05   # Maximum time to allow robot to travel without receiving new commands
                                           # Safety timeout: motors stop if no cmd_vel for this duration
                                           # Prevents runaway robot if communication fails
 
@@ -111,7 +111,7 @@ roboclaw_driver:
     # ============================================================================
     # DEBUGGING CONTROL - Enable for troubleshooting
     # ============================================================================
-    do_debug: false                       # True => Log RoboClaw commands and responses
+    do_debug: true                       # True => Log RoboClaw commands and responses
                                           # Enable to see detailed communication info
                                           # Useful for troubleshooting communication issues
                                           
