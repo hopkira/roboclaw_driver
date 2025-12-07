@@ -62,7 +62,7 @@ RoboClawDriverNode::RoboClawDriverNode()
   RCUTILS_LOG_INFO("accel: %d", accel_);
   RCUTILS_LOG_INFO("base_frame: %s", base_frame_.c_str());
   RCUTILS_LOG_INFO("baud_rate: %d", baud_rate_);
-  RCUTILS_LOG_INFO("decel: %d", decel);
+  RCUTILS_LOG_INFO("decel: %d", decel_);
   RCUTILS_LOG_INFO("do_debug: %s", do_debug_ ? "true" : "false");
   RCUTILS_LOG_INFO("do_low_level_debug: %s", do_low_level_debug_ ? "true" : "false");
   RCUTILS_LOG_INFO("device_name: %s", device_name_.c_str());
