@@ -149,6 +149,8 @@ m2_d: 0.0                             # Derivative gain
 m2_qpps: 2437                         # Max quadrature pulses per second
 
 accel: 3000                           # Motor acceleration (encoder counts/s²)
+decel: 6000                           # Motor deceleration (encoder counts/s²)
+emergency_stop: 12000                 # Full stop motor deceleration (encoder counts/s²)
 ```
 
 ### What to Publish

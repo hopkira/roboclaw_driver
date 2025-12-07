@@ -62,10 +62,12 @@ RoboClawDriverNode::RoboClawDriverNode()
   RCUTILS_LOG_INFO("accel: %d", accel_);
   RCUTILS_LOG_INFO("base_frame: %s", base_frame_.c_str());
   RCUTILS_LOG_INFO("baud_rate: %d", baud_rate_);
+  RCUTILS_LOG_INFO("decel: %d", decel);
   RCUTILS_LOG_INFO("do_debug: %s", do_debug_ ? "true" : "false");
   RCUTILS_LOG_INFO("do_low_level_debug: %s", do_low_level_debug_ ? "true" : "false");
   RCUTILS_LOG_INFO("device_name: %s", device_name_.c_str());
   RCUTILS_LOG_INFO("device_timeout: %d", device_timeout_);
+  RCUTILS_LOG_INFO("emergency_stop: %d", emergency_stop_);
   RCUTILS_LOG_INFO("encoder_counts_per_revolution: %d", encoder_counts_per_revolution_);
   RCUTILS_LOG_INFO("joint_states_rate: %.1f", joint_states_rate_);
   RCUTILS_LOG_INFO("m1_d: %.6f", m1_d_);
@@ -252,38 +254,75 @@ void RoboClawDriverNode::cmd_vel_callback(const geometry_msgs::msg::Twist::Share
 void RoboClawDriverNode::handle_cmd_vel() {
   static uint32_t last_sequence_number = 0;
 
+  // Track previous commanded speeds so we can detect accel vs decel
+  static int32_t last_left_speed = 0;
+  static int32_t last_right_speed = 0;
+  static bool have_last = false;
+
   std::lock_guard<std::mutex> lock(last_cmd_vel_.mutex);
 
   // Skip if no new command received
   if (last_cmd_vel_.sequence_number <= last_sequence_number) {
     return;
   }
-
   last_sequence_number = last_cmd_vel_.sequence_number;
 
   // Convert twist to individual motor speeds
   int32_t target_left_speed;
   int32_t target_right_speed;
-  convert_twist_to_motor_speeds(last_cmd_vel_.cmd_vel, target_left_speed, target_right_speed);
+  convert_twist_to_motor_speeds(last_cmd_vel_.cmd_vel,
+                                target_left_speed, target_right_speed);
+
+  // Decide which accel value to use
+  uint32_t accel_to_use = accel_;
+
+  // 1) Emergency brake: both targets are zero
+  if (target_left_speed == 0 && target_right_speed == 0) {
+    accel_to_use = emergency_stop_;
+  } else if (have_last) {
+    // 2) Normal accel vs decel behaviour
+    auto is_slowing = [](int32_t last_speed, int32_t new_speed) {
+      bool mag_decreasing = std::abs(new_speed) < std::abs(last_speed);
+      bool sign_changed = (last_speed > 0 && new_speed < 0) ||
+                          (last_speed < 0 && new_speed > 0);
+      return mag_decreasing || sign_changed;
+    };
+
+    bool left_slowing  = is_slowing(last_left_speed,  target_left_speed);
+    bool right_slowing = is_slowing(last_right_speed, target_right_speed);
+
+    if (left_slowing || right_slowing) {
+      accel_to_use = decel_;
+    } else {
+      accel_to_use = accel_;
+    }
+  }
+
+  have_last      = true;
+  last_left_speed  = target_left_speed;
+  last_right_speed = target_right_speed;
 
   // Calculate maximum distance for safety timeout
-  // Motors will stop after traveling this distance without new commands
   const int32_t m1_max_distance_quad_pulses =
-      (int32_t)fabs(target_left_speed * max_seconds_uncommanded_travel_);
+      static_cast<int32_t>(std::fabs(target_left_speed * max_seconds_uncommanded_travel_));
   const int32_t m2_max_distance_quad_pulses =
-      (int32_t)fabs(target_right_speed * max_seconds_uncommanded_travel_);
+      static_cast<int32_t>(std::fabs(target_right_speed * max_seconds_uncommanded_travel_));
 
-  // Send buffered command with acceleration and distance limits
-  CmdDoBufferedM1M2DriveSpeedAccelDistance cmd(*roboclaw_, accel_, target_left_speed,
-                                               m1_max_distance_quad_pulses, target_right_speed,
-                                               m2_max_distance_quad_pulses);
+  // Send buffered command with chosen accel and distance limits
+  CmdDoBufferedM1M2DriveSpeedAccelDistance cmd(
+      *roboclaw_,
+      accel_to_use,
+      target_left_speed,
+      m1_max_distance_quad_pulses,
+      target_right_speed,
+      m2_max_distance_quad_pulses);
   cmd.execute();
 
-  // Log timing information if debug enabled
   if (do_debug_) {
     rclcpp::Time now = this->get_clock()->now();
     double lag_time = (now - last_cmd_vel_.timestamp).seconds();
-    RCUTILS_LOG_INFO("lag_time=%.3f, sequence=%u", lag_time, last_cmd_vel_.sequence_number);
+    RCUTILS_LOG_INFO("lag_time=%.3f, sequence=%u, accel_used=%u",
+                     lag_time, last_cmd_vel_.sequence_number, accel_to_use);
   }
 }
 
@@ -585,7 +624,9 @@ void RoboClawDriverNode::declare_parameters() {
   // Declare all parameters alphabetically with proper default values
   // This ensures consistent parameter handling and avoids truncation issues
 
-  this->declare_parameter("accel", 3000);
+  this->declare_parameter("accel", 3000); // Acceleration parameter in clicks/sec2
+  this->declare_parameter("decel", 6000); // Deceleration parameter in clicks/sec2
+  this->declare_parameter("emergency_stop", 12000); // Emergency stop speed in clicks/sec2
   this->declare_parameter("base_frame", "base_link");
   this->declare_parameter("baud_rate", 230400);  // Match config file default
   this->declare_parameter("device_name",
@@ -628,6 +669,8 @@ void RoboClawDriverNode::load_parameters() {
   // This prevents truncation and type conversion issues
 
   accel_ = this->get_parameter_or("accel", 3000);
+  decel_ = this->get_parameter_or("decel", 6000);
+  emergency_stop_ = this->get_parameter_or("accel", 12000);
   base_frame_ = this->get_parameter_or("base_frame", std::string("base_link"));
   baud_rate_ = this->get_parameter_or("baud_rate", 230400);
   device_name_ = this->get_parameter_or("device_name", std::string("/dev/ttyAMA0"));
@@ -676,6 +719,8 @@ void RoboClawDriverNode::log_parameters() {
     RCUTILS_LOG_INFO("  wheel_separation: %.6f m", wheel_separation_);
     RCUTILS_LOG_INFO("  encoder_counts_per_revolution: %d", encoder_counts_per_revolution_);
     RCUTILS_LOG_INFO("  accel: %u quad pulses/s²", accel_);
+    RCUTILS_LOG_INFO("  decel: %u quad pulses/s²", decel_);
+    RCUTILS_LOG_INFO("  emergency_stop: %u quad pulses/s²", emergency_stop_);
 
     // Safety parameters
     RCUTILS_LOG_INFO("Safety:");

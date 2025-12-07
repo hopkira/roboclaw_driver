@@ -91,8 +91,9 @@ roboclaw_driver:
     # MOTOR ACCELERATION SETTINGS
     # ============================================================================
     accel: 3000                           # Motor acceleration in encoder counts per second squared
-                                          # Higher = faster acceleration, but may cause wheel slip
-                                          # Lower = smoother but slower acceleration
+    decel: 6000                           # Motor deceleration in encoder counts per second squared
+    emergency_stop: 12000                 # Motor deceleration when requested to stop immediately
+                                          # Too high may cause wheel slip or instability
 
     # ============================================================================
     # PUBLISHING CONTROL - Enable/disable specific data publishing
