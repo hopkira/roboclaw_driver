@@ -624,9 +624,9 @@ void RoboClawDriverNode::declare_parameters() {
   // Declare all parameters alphabetically with proper default values
   // This ensures consistent parameter handling and avoids truncation issues
 
-  this->declare_parameter("accel", 3000); // Acceleration parameter in clicks/sec2
-  this->declare_parameter("decel", 6000); // Deceleration parameter in clicks/sec2
-  this->declare_parameter("emergency_decel", 12000); // Emergency stop speed in clicks/sec2
+  this->declare_parameter("accel", 300); // Acceleration parameter in clicks/sec2
+  this->declare_parameter("decel", 600); // Deceleration parameter in clicks/sec2
+  this->declare_parameter("emergency_decel", 1200); // Emergency stop speed in clicks/sec2
   this->declare_parameter("base_frame", "base_link");
   this->declare_parameter("baud_rate", 230400);  // Match config file default
   this->declare_parameter("device_name",
@@ -668,9 +668,9 @@ void RoboClawDriverNode::load_parameters() {
   // Load all parameters using get_parameter_or for robust error handling
   // This prevents truncation and type conversion issues
 
-  accel_ = this->get_parameter_or("accel", 3000);
-  decel_ = this->get_parameter_or("decel", 6000);
-  emergency_decel_ = this->get_parameter_or("accel", 12000);
+  accel_ = this->get_parameter_or("accel", 300);
+  decel_ = this->get_parameter_or("decel", 600);
+  emergency_decel_ = this->get_parameter_or("emergency_decel", 1200);
   base_frame_ = this->get_parameter_or("base_frame", std::string("base_link"));
   baud_rate_ = this->get_parameter_or("baud_rate", 230400);
   device_name_ = this->get_parameter_or("device_name", std::string("/dev/ttyAMA0"));
