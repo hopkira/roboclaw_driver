@@ -165,7 +165,7 @@ class RoboClawDriverNode : public rclcpp::Node {
   uint32_t m2_qpps_;
   uint32_t accel_;
   uint32_t decel_;
-  uint32_t emergency_stop_;
+  uint32_t emergency_decel_;
 
   // Publishing control
   bool publish_odom_;

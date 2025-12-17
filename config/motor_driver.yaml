@@ -92,7 +92,7 @@ roboclaw_driver:
     # ============================================================================
     accel: 300                           # Motor acceleration in encoder counts per second squared
     decel: 600                           # Motor deceleration in encoder counts per second squared
-    emergency_stop: 1200                 # Motor deceleration when requested to stop immediately
+    emergency_decel: 1200                 # Motor deceleration when requested to stop immediately
 
     # ============================================================================
     # PUBLISHING CONTROL - Enable/disable specific data publishing

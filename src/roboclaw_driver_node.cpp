@@ -67,7 +67,7 @@ RoboClawDriverNode::RoboClawDriverNode()
   RCUTILS_LOG_INFO("do_low_level_debug: %s", do_low_level_debug_ ? "true" : "false");
   RCUTILS_LOG_INFO("device_name: %s", device_name_.c_str());
   RCUTILS_LOG_INFO("device_timeout: %d", device_timeout_);
-  RCUTILS_LOG_INFO("emergency_stop: %d", emergency_stop_);
+  RCUTILS_LOG_INFO("emergency_decel: %d", emergency_decel_);
   RCUTILS_LOG_INFO("encoder_counts_per_revolution: %d", encoder_counts_per_revolution_);
   RCUTILS_LOG_INFO("joint_states_rate: %.1f", joint_states_rate_);
   RCUTILS_LOG_INFO("m1_d: %.6f", m1_d_);
@@ -278,7 +278,7 @@ void RoboClawDriverNode::handle_cmd_vel() {
 
   // 1) Emergency brake: both targets are zero
   if (target_left_speed == 0 && target_right_speed == 0) {
-    accel_to_use = emergency_stop_;
+    accel_to_use = emergency_decel_;
   } else if (have_last) {
     // 2) Normal accel vs decel behaviour
     auto is_slowing = [](int32_t last_speed, int32_t new_speed) {
@@ -626,7 +626,7 @@ void RoboClawDriverNode::declare_parameters() {
 
   this->declare_parameter("accel", 3000); // Acceleration parameter in clicks/sec2
   this->declare_parameter("decel", 6000); // Deceleration parameter in clicks/sec2
-  this->declare_parameter("emergency_stop", 12000); // Emergency stop speed in clicks/sec2
+  this->declare_parameter("emergency_decel", 12000); // Emergency stop speed in clicks/sec2
   this->declare_parameter("base_frame", "base_link");
   this->declare_parameter("baud_rate", 230400);  // Match config file default
   this->declare_parameter("device_name",
@@ -670,7 +670,7 @@ void RoboClawDriverNode::load_parameters() {
 
   accel_ = this->get_parameter_or("accel", 3000);
   decel_ = this->get_parameter_or("decel", 6000);
-  emergency_stop_ = this->get_parameter_or("accel", 12000);
+  emergency_decel_ = this->get_parameter_or("accel", 12000);
   base_frame_ = this->get_parameter_or("base_frame", std::string("base_link"));
   baud_rate_ = this->get_parameter_or("baud_rate", 230400);
   device_name_ = this->get_parameter_or("device_name", std::string("/dev/ttyAMA0"));
@@ -720,7 +720,7 @@ void RoboClawDriverNode::log_parameters() {
     RCUTILS_LOG_INFO("  encoder_counts_per_revolution: %d", encoder_counts_per_revolution_);
     RCUTILS_LOG_INFO("  accel: %u quad pulses/s²", accel_);
     RCUTILS_LOG_INFO("  decel: %u quad pulses/s²", decel_);
-    RCUTILS_LOG_INFO("  emergency_stop: %u quad pulses/s²", emergency_stop_);
+    RCUTILS_LOG_INFO("  emergency_decel: %u quad pulses/s²", emergency_decel_);
 
     // Safety parameters
     RCUTILS_LOG_INFO("Safety:");
